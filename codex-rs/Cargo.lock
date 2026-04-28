@@ -31,9 +31,9 @@ dependencies = [
 
 [[package]]
 name = "actix-http"
-version = "3.11.2"
+version = "3.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7926860314cbe2fb5d1f13731e387ab43bd32bca224e82e6e2db85de0a3dba49"
+checksum = "93acb4a42f64936f9b8cae4a433b237599dd6eb6ed06124eb67132ef8cc90662"
 dependencies = [
  "actix-codec",
  "actix-rt",
@@ -1761,7 +1761,7 @@ dependencies = [
  "jsonwebtoken",
  "pretty_assertions",
  "rand 0.9.3",
- "reqwest",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "sha2",
@@ -1815,7 +1815,7 @@ dependencies = [
  "http 1.4.0",
  "pretty_assertions",
  "regex-lite",
- "reqwest",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "tempfile",
@@ -1890,7 +1890,7 @@ dependencies = [
  "opentelemetry_sdk",
  "owo-colors",
  "pretty_assertions",
- "reqwest",
+ "reqwest 0.12.28",
  "rmcp",
  "serde",
  "serde_json",
@@ -2059,7 +2059,7 @@ dependencies = [
  "codex-model-provider",
  "codex-protocol",
  "pretty_assertions",
- "reqwest",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
 ]
@@ -2167,7 +2167,7 @@ dependencies = [
  "opentelemetry_sdk",
  "pretty_assertions",
  "rand 0.9.3",
- "reqwest",
+ "reqwest 0.12.28",
  "rustls",
  "rustls-native-certs",
  "rustls-pki-types",
@@ -2228,7 +2228,7 @@ dependencies = [
  "owo-colors",
  "pretty_assertions",
  "ratatui",
- "reqwest",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "supports-color 3.0.2",
@@ -2450,7 +2450,7 @@ dependencies = [
  "pretty_assertions",
  "rand 0.9.3",
  "regex-lite",
- "reqwest",
+ "reqwest 0.12.28",
  "rmcp",
  "serde",
  "serde_json",
@@ -2502,7 +2502,7 @@ dependencies = [
  "flate2",
  "libc",
  "pretty_assertions",
- "reqwest",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "tar",
@@ -2640,7 +2640,7 @@ dependencies = [
  "ctor 0.6.3",
  "futures",
  "pretty_assertions",
- "reqwest",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "serial_test",
@@ -2841,7 +2841,7 @@ version = "0.0.0"
 dependencies = [
  "codex-core",
  "codex-model-provider-info",
- "reqwest",
+ "reqwest 0.12.28",
  "serde_json",
  "tokio",
  "tracing",
@@ -2874,7 +2874,7 @@ dependencies = [
  "pretty_assertions",
  "rand 0.9.3",
  "regex-lite",
- "reqwest",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "serial_test",
@@ -3107,7 +3107,7 @@ dependencies = [
  "codex-model-provider-info",
  "futures",
  "pretty_assertions",
- "reqwest",
+ "reqwest 0.12.28",
  "semver",
  "serde_json",
  "tokio",
@@ -3135,7 +3135,7 @@ dependencies = [
  "opentelemetry_sdk",
  "os_info",
  "pretty_assertions",
- "reqwest",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "strum_macros 0.28.0",
@@ -3187,7 +3187,7 @@ dependencies = [
  "landlock",
  "pretty_assertions",
  "quick-xml",
- "reqwest",
+ "reqwest 0.12.28",
  "schemars 0.8.22",
  "seccompiler",
  "serde",
@@ -3235,7 +3235,7 @@ dependencies = [
  "ctor 0.6.3",
  "libc",
  "pretty_assertions",
- "reqwest",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "tiny_http",
@@ -3262,7 +3262,7 @@ dependencies = [
  "keyring",
  "oauth2",
  "pretty_assertions",
- "reqwest",
+ "reqwest 0.12.28",
  "rmcp",
  "serde",
  "serde_json",
@@ -3577,7 +3577,7 @@ dependencies = [
  "ratatui",
  "ratatui-macros",
  "regex-lite",
- "reqwest",
+ "reqwest 0.12.28",
  "rmcp",
  "serde",
  "serde_json",
@@ -4112,7 +4112,7 @@ dependencies = [
  "opentelemetry_sdk",
  "pretty_assertions",
  "regex-lite",
- "reqwest",
+ "reqwest 0.12.28",
  "serde_json",
  "shlex",
  "tempfile",
@@ -8754,12 +8754,12 @@ version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "51e219e79014df21a225b1860a479e2dcd7cbd9130f4defd4bd0e191ea31d67d"
 dependencies = [
- "base64 0.21.7",
+ "base64 0.22.1",
  "chrono",
  "getrandom 0.2.17",
  "http 1.4.0",
  "rand 0.8.5",
- "reqwest",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "serde_path_to_error",
@@ -9120,7 +9120,7 @@ dependencies = [
  "bytes",
  "http 1.4.0",
  "opentelemetry",
- "reqwest",
+ "reqwest 0.12.28",
 ]
 
 [[package]]
@@ -9135,7 +9135,7 @@ dependencies = [
  "opentelemetry-proto",
  "opentelemetry_sdk",
  "prost 0.14.3",
- "reqwest",
+ "reqwest 0.12.28",
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
@@ -9222,7 +9222,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d8fae84b431384b68627d0f9b3b1245fcf9f46f6c0e3dc902e9dce64edd1967"
 dependencies = [
  "libc",
- "windows-sys 0.45.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -10626,6 +10626,45 @@ dependencies = [
 ]
 
 [[package]]
+name = "reqwest"
+version = "0.13.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "62e0021ea2c22aed41653bc7e1419abb2c97e038ff2c33d0e1309e49a97deec0"
+dependencies = [
+ "base64 0.22.1",
+ "bytes",
+ "futures-channel",
+ "futures-core",
+ "futures-util",
+ "h2",
+ "http 1.4.0",
+ "http-body 1.0.1",
+ "http-body-util",
+ "hyper",
+ "hyper-rustls",
+ "hyper-tls",
+ "hyper-util",
+ "js-sys",
+ "log",
+ "native-tls",
+ "percent-encoding",
+ "pin-project-lite",
+ "rustls-pki-types",
+ "serde",
+ "serde_json",
+ "sync_wrapper",
+ "tokio",
+ "tokio-native-tls",
+ "tower",
+ "tower-http",
+ "tower-service",
+ "url",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
 name = "resb"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10685,7 +10724,7 @@ dependencies = [
  "pin-project-lite",
  "process-wrap",
  "rand 0.9.3",
- "reqwest",
+ "reqwest 0.12.28",
  "rmcp-macros",
  "schemars 1.2.1",
  "serde",
@@ -11220,13 +11259,14 @@ checksum = "d767eb0aabc880b29956c35734170f26ed551a859dbd361d140cdbeca61ab1e2"
 
 [[package]]
 name = "sentry"
-version = "0.46.1"
+version = "0.48.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f925d575b468e88b079faf590a8dd0c9c99e2ec29e9bab663ceb8b45056312f"
+checksum = "e8ac94aab850a23d7507307cc505332ed2bafd36c65930dfc5c43610f9e9b477"
 dependencies = [
+ "cfg_aliases 0.2.1",
  "httpdate",
  "native-tls",
- "reqwest",
+ "reqwest 0.13.3",
  "sentry-actix",
  "sentry-backtrace",
  "sentry-contexts",
@@ -11240,9 +11280,9 @@ dependencies = [
 
 [[package]]
 name = "sentry-actix"
-version = "0.46.1"
+version = "0.48.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "18bac0f6b8621fa0f85e298901e51161205788322e1a995e3764329020368058"
+checksum = "fc85c297fcb76e3b89a19d14414af6abcf23a670c036266fe4cd71ae6def0d5a"
 dependencies = [
  "actix-http",
  "actix-web",
@@ -11253,9 +11293,9 @@ dependencies = [
 
 [[package]]
 name = "sentry-backtrace"
-version = "0.46.1"
+version = "0.48.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6cb1ef7534f583af20452b1b1bf610a60ed9c8dd2d8485e7bd064efc556a78fb"
+checksum = "1b803539b9ec0bde4ad759bf07190f6c24062363d519790ac2552dd5a6b21232"
 dependencies = [
  "backtrace",
  "regex",
@@ -11264,9 +11304,9 @@ dependencies = [
 
 [[package]]
 name = "sentry-contexts"
-version = "0.46.1"
+version = "0.48.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ebd6be899d9938390b6d1ec71e2f53bd9e57b6a9d8b1d5b049e5c364e7da9078"
+checksum = "7e09c2dadaaa7b2a6dd5e84650b70bbdba504e318a2059a7ff0b9eedc51ef336"
 dependencies = [
  "hostname",
  "libc",
@@ -11278,9 +11318,9 @@ dependencies = [
 
 [[package]]
 name = "sentry-core"
-version = "0.46.1"
+version = "0.48.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "26ab054c34b87f96c3e4701bea1888317cde30cc7e4a6136d2c48454ab96661c"
+checksum = "56de6f8c10ed1b74543b9654b99d3d9a2d876bd5996f3ecd60afdc30ef40ad0e"
 dependencies = [
  "rand 0.9.3",
  "sentry-types",
@@ -11291,9 +11331,9 @@ dependencies = [
 
 [[package]]
 name = "sentry-debug-images"
-version = "0.46.1"
+version = "0.48.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5637ec550dc6f8c49a711537950722d3fc4baa6fd433c371912104eaff31e2a5"
+checksum = "e1524373dd0f1001eff4d323f0ce877ee47a9bcf109f6343d1e208752fd9c95f"
 dependencies = [
  "findshlibs",
  "sentry-core",
@@ -11301,9 +11341,9 @@ dependencies = [
 
 [[package]]
 name = "sentry-panic"
-version = "0.46.1"
+version = "0.48.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3f02c7162f7b69b8de872b439d4696dc1d65f80b13ddd3c3831723def4756b63"
+checksum = "382b8f029465d2e2da7ef25bd08110e91817cfe9e2849ac0547359e0ae50f27e"
 dependencies = [
  "sentry-backtrace",
  "sentry-core",
@@ -11311,9 +11351,9 @@ dependencies = [
 
 [[package]]
 name = "sentry-tracing"
-version = "0.46.1"
+version = "0.48.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e1dd47df349a80025819f3d25c3d2f751df705d49c65a4cdc0f130f700972a48"
+checksum = "77782d2a65e141f20020ec59552aaf9449aeea64bd7624e20c114b8474c4a9ee"
 dependencies = [
  "bitflags 2.10.0",
  "sentry-backtrace",
@@ -11324,9 +11364,9 @@ dependencies = [
 
 [[package]]
 name = "sentry-types"
-version = "0.46.1"
+version = "0.48.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eecbd63e9d15a26a40675ed180d376fcb434635d2e33de1c24003f61e3e2230d"
+checksum = "00c69667ff14f47aad798e6be2ad8409e350b3ab0b8d72b338b462ed35f7bcc4"
 dependencies = [
  "debugid",
  "hex",
@@ -13777,7 +13817,7 @@ dependencies = [
  "anyhow",
  "fs2",
  "regex",
- "reqwest",
+ "reqwest 0.12.28",
  "scratch",
  "semver",
  "zip 0.6.6",
@@ -13866,7 +13906,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
