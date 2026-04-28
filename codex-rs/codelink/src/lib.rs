@@ -68,15 +68,15 @@ pub struct BgArgs {
     #[arg(long, value_name = "DIR")]
     pub cwd: Option<PathBuf>,
 
-    /// Codex executable to run.
-    #[arg(long, default_value = "codex")]
+    /// CodeLink-compatible executable to run.
+    #[arg(long, default_value = "codelink")]
     pub codex_bin: String,
 
-    /// Extra argument passed to Codex before `exec`. Repeat for multiple args.
+    /// Extra argument passed to CodeLink before `exec`. Repeat for multiple args.
     #[arg(long = "codex-arg", value_name = "ARG", allow_hyphen_values = true)]
     pub codex_args: Vec<String>,
 
-    /// Prompt for `codex exec`.
+    /// Prompt for `codelink exec`.
     #[arg(value_name = "PROMPT", required = true)]
     pub prompt: Vec<String>,
 }

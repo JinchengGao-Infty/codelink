@@ -142,7 +142,7 @@ controlling session after it finishes. The first CLI shape is:
 codelink bg --job-id audit-readme --cwd /path/to/repo "review README and write findings"
 ```
 
-The first pass may run `codex exec <prompt>` as a child process and capture
+The first pass may run `codelink exec <prompt>` as a child process and capture
 stdout/stderr under `~/.codelink/jobs/<job_id>/`. The job store and notification
 paths are shared with `watch-remote`:
 

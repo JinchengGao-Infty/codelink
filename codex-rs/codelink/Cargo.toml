@@ -9,7 +9,7 @@ name = "codex_codelink"
 path = "src/lib.rs"
 
 [[bin]]
-name = "codelink"
+name = "codelink-jobs"
 path = "src/main.rs"
 
 [lints]

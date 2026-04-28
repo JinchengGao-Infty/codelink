@@ -1,5 +1,6 @@
 use clap::Args;
 use clap::CommandFactory;
+use clap::FromArgMatches;
 use clap::Parser;
 use clap_complete::Shell;
 use clap_complete::generate;
@@ -19,7 +20,14 @@ use codex_cli::run_login_with_chatgpt;
 use codex_cli::run_login_with_device_code;
 use codex_cli::run_logout;
 use codex_cloud_tasks::Cli as CloudTasksCli;
+use codex_codelink::BgArgs as CodeLinkBgArgs;
 use codex_codelink::Cli as CodeLinkCli;
+use codex_codelink::CommandKind as CodeLinkCommandKind;
+use codex_codelink::JobIdArgs as CodeLinkJobIdArgs;
+use codex_codelink::JobsArgs as CodeLinkJobsArgs;
+use codex_codelink::NotificationsArgs as CodeLinkNotificationsArgs;
+use codex_codelink::WatchRemoteArgs as CodeLinkWatchRemoteArgs;
+use codex_codelink::WorkerArgs as CodeLinkWorkerArgs;
 use codex_exec::Cli as ExecCli;
 use codex_exec::Command as ExecCommand;
 use codex_exec::ReviewArgs;
@@ -78,10 +86,6 @@ use codex_terminal_detection::TerminalName;
     version,
     // If a sub‑command is given, ignore requirements of the default args.
     subcommand_negates_reqs = true,
-    // The executable is sometimes invoked via a platform‑specific name like
-    // `codex-x86_64-unknown-linux-musl`, but the help output should always use
-    // the generic `codex` command name that users run.
-    bin_name = "codex",
     override_usage = "codex [OPTIONS] [PROMPT]\n       codex [OPTIONS] <COMMAND> [ARGS]"
 )]
 struct MultitoolCli {
@@ -162,9 +166,34 @@ enum Subcommand {
     #[clap(name = "cloud", alias = "cloud-tasks")]
     Cloud(CloudTasksCli),
 
+    /// Run a background CodeLink agent task.
+    Bg(CodeLinkBgArgs),
+
+    /// Watch a remote tmux/log job in the background.
+    WatchRemote(CodeLinkWatchRemoteArgs),
+
+    /// List CodeLink background jobs.
+    Jobs(CodeLinkJobsArgs),
+
+    /// Show the latest CodeLink job result or notification.
+    Result(CodeLinkJobIdArgs),
+
+    /// Print a CodeLink job's captured log snapshots.
+    Logs(CodeLinkJobIdArgs),
+
+    /// Print unread CodeLink completion/failure notifications.
+    Notifications(CodeLinkNotificationsArgs),
+
+    /// Mark a CodeLink job canceled.
+    Cancel(CodeLinkJobIdArgs),
+
     /// CodeLink local background jobs and notifications.
     #[clap(name = "codelink")]
     CodeLink(CodeLinkCli),
+
+    /// Internal CodeLink worker entrypoint.
+    #[clap(hide = true)]
+    Worker(CodeLinkWorkerArgs),
 
     /// Internal: run the responses API proxy.
     #[clap(hide = true)]
@@ -750,7 +779,7 @@ async fn cli_main(arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()> {
         remote,
         mut interactive,
         subcommand,
-    } = MultitoolCli::parse();
+    } = parse_multitool_cli();
 
     // Fold --enable/--disable into config overrides so they flow to all subcommands.
     let toggle_overrides = feature_toggles.to_overrides()?;
@@ -1046,6 +1075,83 @@ async fn cli_main(arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()> {
             codex_cloud_tasks::run_main(cloud_cli, arg0_paths.codex_linux_sandbox_exe.clone())
                 .await?;
         }
+        Some(Subcommand::Bg(args)) => {
+            reject_remote_mode_for_subcommand(
+                root_remote.as_deref(),
+                root_remote_auth_token_env.as_deref(),
+                "bg",
+            )?;
+            codex_codelink::run_main(CodeLinkCli {
+                subcommand: CodeLinkCommandKind::Bg(args),
+            })
+            .await?;
+        }
+        Some(Subcommand::WatchRemote(args)) => {
+            reject_remote_mode_for_subcommand(
+                root_remote.as_deref(),
+                root_remote_auth_token_env.as_deref(),
+                "watch-remote",
+            )?;
+            codex_codelink::run_main(CodeLinkCli {
+                subcommand: CodeLinkCommandKind::WatchRemote(args),
+            })
+            .await?;
+        }
+        Some(Subcommand::Jobs(args)) => {
+            reject_remote_mode_for_subcommand(
+                root_remote.as_deref(),
+                root_remote_auth_token_env.as_deref(),
+                "jobs",
+            )?;
+            codex_codelink::run_main(CodeLinkCli {
+                subcommand: CodeLinkCommandKind::Jobs(args),
+            })
+            .await?;
+        }
+        Some(Subcommand::Result(args)) => {
+            reject_remote_mode_for_subcommand(
+                root_remote.as_deref(),
+                root_remote_auth_token_env.as_deref(),
+                "result",
+            )?;
+            codex_codelink::run_main(CodeLinkCli {
+                subcommand: CodeLinkCommandKind::Result(args),
+            })
+            .await?;
+        }
+        Some(Subcommand::Logs(args)) => {
+            reject_remote_mode_for_subcommand(
+                root_remote.as_deref(),
+                root_remote_auth_token_env.as_deref(),
+                "logs",
+            )?;
+            codex_codelink::run_main(CodeLinkCli {
+                subcommand: CodeLinkCommandKind::Logs(args),
+            })
+            .await?;
+        }
+        Some(Subcommand::Notifications(args)) => {
+            reject_remote_mode_for_subcommand(
+                root_remote.as_deref(),
+                root_remote_auth_token_env.as_deref(),
+                "notifications",
+            )?;
+            codex_codelink::run_main(CodeLinkCli {
+                subcommand: CodeLinkCommandKind::Notifications(args),
+            })
+            .await?;
+        }
+        Some(Subcommand::Cancel(args)) => {
+            reject_remote_mode_for_subcommand(
+                root_remote.as_deref(),
+                root_remote_auth_token_env.as_deref(),
+                "cancel",
+            )?;
+            codex_codelink::run_main(CodeLinkCli {
+                subcommand: CodeLinkCommandKind::Cancel(args),
+            })
+            .await?;
+        }
         Some(Subcommand::CodeLink(codelink_cli)) => {
             reject_remote_mode_for_subcommand(
                 root_remote.as_deref(),
@@ -1053,6 +1159,17 @@ async fn cli_main(arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()> {
                 "codelink",
             )?;
             codex_codelink::run_main(codelink_cli).await?;
+        }
+        Some(Subcommand::Worker(args)) => {
+            reject_remote_mode_for_subcommand(
+                root_remote.as_deref(),
+                root_remote_auth_token_env.as_deref(),
+                "worker",
+            )?;
+            codex_codelink::run_main(CodeLinkCli {
+                subcommand: CodeLinkCommandKind::Worker(args),
+            })
+            .await?;
         }
         Some(Subcommand::Sandbox(sandbox_args)) => match sandbox_args.cmd {
             SandboxCommand::Macos(mut seatbelt_cli) => {
@@ -1268,6 +1385,25 @@ async fn cli_main(arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn parse_multitool_cli() -> MultitoolCli {
+    let bin_name = std::env::args_os()
+        .next()
+        .and_then(|arg0| {
+            std::path::PathBuf::from(arg0)
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+        })
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(|| "codex".to_string());
+    let usage =
+        format!("{bin_name} [OPTIONS] [PROMPT]\n       {bin_name} [OPTIONS] <COMMAND> [ARGS]");
+    let matches = MultitoolCli::command()
+        .bin_name(bin_name)
+        .override_usage(usage)
+        .get_matches();
+    MultitoolCli::from_arg_matches(&matches).unwrap_or_else(|err| err.exit())
 }
 
 async fn run_exec_server_command(
