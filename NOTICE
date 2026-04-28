@@ -1,6 +1,14 @@
 OpenAI Codex
 Copyright 2025 OpenAI
 
+CodeLink modifications
+Copyright 2026 Infty contributors
+
+CodeLink is an independent fork and derivative work of OpenAI Codex. CodeLink
+changes are distributed under the Apache License, Version 2.0, unless a file
+states otherwise. The project retains the original OpenAI Codex license and
+notice text as required by Apache-2.0.
+
 This project includes code derived from [Ratatui](https://github.com/ratatui/ratatui), licensed under the MIT license.
 Copyright (c) 2016-2022 Florian Dehau
 Copyright (c) 2023-2025 The Ratatui Developers

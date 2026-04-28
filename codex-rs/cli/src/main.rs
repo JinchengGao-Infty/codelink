@@ -19,6 +19,7 @@ use codex_cli::run_login_with_chatgpt;
 use codex_cli::run_login_with_device_code;
 use codex_cli::run_logout;
 use codex_cloud_tasks::Cli as CloudTasksCli;
+use codex_codelink::Cli as CodeLinkCli;
 use codex_exec::Cli as ExecCli;
 use codex_exec::Command as ExecCommand;
 use codex_exec::ReviewArgs;
@@ -160,6 +161,10 @@ enum Subcommand {
     /// [EXPERIMENTAL] Browse tasks from Codex Cloud and apply changes locally.
     #[clap(name = "cloud", alias = "cloud-tasks")]
     Cloud(CloudTasksCli),
+
+    /// CodeLink local background jobs and notifications.
+    #[clap(name = "codelink")]
+    CodeLink(CodeLinkCli),
 
     /// Internal: run the responses API proxy.
     #[clap(hide = true)]
@@ -1040,6 +1045,14 @@ async fn cli_main(arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()> {
             );
             codex_cloud_tasks::run_main(cloud_cli, arg0_paths.codex_linux_sandbox_exe.clone())
                 .await?;
+        }
+        Some(Subcommand::CodeLink(codelink_cli)) => {
+            reject_remote_mode_for_subcommand(
+                root_remote.as_deref(),
+                root_remote_auth_token_env.as_deref(),
+                "codelink",
+            )?;
+            codex_codelink::run_main(codelink_cli).await?;
         }
         Some(Subcommand::Sandbox(sandbox_args)) => match sandbox_args.cmd {
             SandboxCommand::Macos(mut seatbelt_cli) => {

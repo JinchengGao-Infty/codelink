@@ -5,6 +5,7 @@
 //! the main event loop remains single-threaded.
 
 use super::*;
+use std::collections::HashSet;
 
 impl App {
     pub(super) fn fetch_mcp_inventory(
@@ -75,6 +76,52 @@ impl App {
                 .await
                 .map_err(|err| format!("{err:#}"));
             app_event_tx.send(AppEvent::SkillsListLoaded { result });
+        });
+    }
+
+    pub(super) fn start_codelink_notification_bridge(&mut self) {
+        let app_event_tx = self.app_event_tx.app_event_tx.clone();
+        tokio::spawn(async move {
+            let mut announced_active_jobs: HashSet<String> = HashSet::new();
+            let mut interval = tokio::time::interval(Duration::from_secs(5));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                interval.tick().await;
+
+                match codex_codelink::active_jobs().await {
+                    Ok(jobs) => {
+                        let new_jobs = jobs
+                            .into_iter()
+                            .filter(|job| announced_active_jobs.insert(job.job_id.clone()))
+                            .collect::<Vec<_>>();
+                        if !new_jobs.is_empty()
+                            && app_event_tx
+                                .send(AppEvent::CodeLinkActiveJobsDiscovered { jobs: new_jobs })
+                                .is_err()
+                        {
+                            break;
+                        }
+                    }
+                    Err(err) => {
+                        tracing::debug!(error = %err, "failed to poll active CodeLink jobs");
+                    }
+                }
+
+                match codex_codelink::drain_unread_notifications().await {
+                    Ok(notifications) if notifications.is_empty() => {}
+                    Ok(notifications) => {
+                        if app_event_tx
+                            .send(AppEvent::CodeLinkNotificationsLoaded { notifications })
+                            .is_err()
+                        {
+                            break;
+                        }
+                    }
+                    Err(err) => {
+                        tracing::debug!(error = %err, "failed to poll CodeLink notifications");
+                    }
+                }
+            }
         });
     }
 

@@ -19,6 +19,7 @@ members = [
     "codex-backend-openapi-models",
     "code-mode",
     "cloud-requirements",
+    "codelink",
     "cloud-tasks",
     "cloud-tasks-client",
     "cloud-tasks-mock-client",
@@ -136,6 +137,7 @@ codex-cloud-requirements = { path = "cloud-requirements" }
 codex-cloud-tasks-client = { path = "cloud-tasks-client" }
 codex-cloud-tasks-mock-client = { path = "cloud-tasks-mock-client" }
 codex-code-mode = { path = "code-mode" }
+codex-codelink = { path = "codelink" }
 codex-config = { path = "config" }
 codex-connectors = { path = "connectors" }
 codex-core = { path = "core" }

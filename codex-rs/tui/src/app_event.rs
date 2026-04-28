@@ -22,6 +22,8 @@ use codex_app_server_protocol::PluginReadResponse;
 use codex_app_server_protocol::PluginUninstallResponse;
 use codex_app_server_protocol::SkillsListResponse;
 use codex_app_server_protocol::ThreadGoalStatus;
+use codex_codelink::CodeLinkJobSummary;
+use codex_codelink::CodeLinkNotification;
 use codex_file_search::FileMatch;
 use codex_protocol::ThreadId;
 use codex_protocol::openai_models::ModelPreset;
@@ -388,6 +390,16 @@ pub(crate) enum AppEvent {
     /// completes.
     SkillsListLoaded {
         result: Result<SkillsListResponse, String>,
+    },
+
+    /// Active CodeLink background jobs discovered by the TUI poller.
+    CodeLinkActiveJobsDiscovered {
+        jobs: Vec<CodeLinkJobSummary>,
+    },
+
+    /// Unread CodeLink background job notifications discovered by the TUI poller.
+    CodeLinkNotificationsLoaded {
+        notifications: Vec<CodeLinkNotification>,
     },
 
     /// Begin buffering initial resume replay rows before they are written to scrollback.

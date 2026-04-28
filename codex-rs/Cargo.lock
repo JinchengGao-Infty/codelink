@@ -2109,6 +2109,7 @@ dependencies = [
  "codex-arg0",
  "codex-chatgpt",
  "codex-cloud-tasks",
+ "codex-codelink",
  "codex-config",
  "codex-core",
  "codex-core-plugins",
@@ -2278,6 +2279,23 @@ dependencies = [
  "tokio-util",
  "tracing",
  "v8",
+]
+
+[[package]]
+name = "codex-codelink"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "dirs",
+ "pretty_assertions",
+ "regex-lite",
+ "serde",
+ "serde_json",
+ "shlex",
+ "sqlx",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]
@@ -3503,6 +3521,7 @@ dependencies = [
  "codex-chatgpt",
  "codex-cli",
  "codex-cloud-requirements",
+ "codex-codelink",
  "codex-config",
  "codex-connectors",
  "codex-core-plugins",

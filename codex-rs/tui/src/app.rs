@@ -970,6 +970,7 @@ impl App {
 
         tui.frame_requester().schedule_frame();
         app.refresh_startup_skills(&app_server);
+        app.start_codelink_notification_bridge();
         // Kick off a non-blocking rate-limit prefetch so the first `/status`
         // already has data, without delaying the initial frame render.
         if requires_openai_auth && has_chatgpt_account {

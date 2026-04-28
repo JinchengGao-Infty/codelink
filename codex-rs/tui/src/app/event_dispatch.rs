@@ -529,6 +529,18 @@ impl App {
                     "failed to load skills on startup",
                 );
             }
+            AppEvent::CodeLinkActiveJobsDiscovered { jobs } => {
+                for job in jobs {
+                    self.chat_widget
+                        .add_plain_history_lines(codelink_active_job_lines(&job));
+                }
+            }
+            AppEvent::CodeLinkNotificationsLoaded { notifications } => {
+                for notification in notifications {
+                    self.chat_widget
+                        .add_plain_history_lines(codelink_notification_lines(&notification));
+                }
+            }
             AppEvent::StartFileSearch(query) => {
                 self.file_search.on_user_query(query);
             }
@@ -1775,5 +1787,121 @@ impl App {
                 AppRunControl::Exit(ExitReason::UserRequested)
             }
         }
+    }
+}
+
+fn codelink_active_job_lines(job: &codex_codelink::CodeLinkJobSummary) -> Vec<Line<'static>> {
+    let summary = job
+        .last_summary
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("background job is still running");
+    vec![
+        vec![
+            "• ".dim(),
+            "[CodeLink] ".cyan(),
+            format!("{} background job: {}", job.status, job.job_id).into(),
+        ]
+        .into(),
+        vec!["  ".into(), format!("{summary}; kind={}", job.kind).into()].into(),
+        vec![
+            "  ".into(),
+            "check: ".dim(),
+            format!("codelink result {}", job.job_id).cyan(),
+            " / ".dim(),
+            format!("codelink logs {}", job.job_id).cyan(),
+        ]
+        .into(),
+    ]
+}
+
+fn codelink_notification_lines(
+    notification: &codex_codelink::CodeLinkNotification,
+) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+    lines.push(
+        vec![
+            "• ".dim(),
+            "[CodeLink] ".cyan(),
+            format!("background job {} completed", notification.job_id).into(),
+        ]
+        .into(),
+    );
+
+    for line in notification.content.lines().take(6) {
+        if !line.trim().is_empty() {
+            lines.push(vec!["  ".into(), line.to_string().into()].into());
+        }
+    }
+
+    lines.push(
+        vec![
+            "  ".into(),
+            "result: ".dim(),
+            format!("codelink result {}", notification.job_id).cyan(),
+        ]
+        .into(),
+    );
+    lines.push(
+        vec![
+            "  ".into(),
+            "notification: ".dim(),
+            notification
+                .notification_path
+                .display()
+                .to_string()
+                .dark_gray(),
+        ]
+        .into(),
+    );
+    lines
+}
+
+#[cfg(test)]
+mod codelink_notification_tests {
+    use super::*;
+
+    fn flatten(lines: Vec<Line<'static>>) -> String {
+        lines
+            .into_iter()
+            .map(|line| {
+                line.spans
+                    .into_iter()
+                    .map(|span| span.content.into_owned())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn codelink_active_job_lines_include_status_and_check_commands() {
+        let job = codex_codelink::CodeLinkJobSummary {
+            job_id: "job-a".to_string(),
+            kind: "codex_agent".to_string(),
+            status: "running".to_string(),
+            artifact_dir: PathBuf::from("/tmp/job-a"),
+            last_summary: Some("background agent pid=123".to_string()),
+        };
+
+        let rendered = flatten(codelink_active_job_lines(&job));
+        assert!(rendered.contains("running background job: job-a"));
+        assert!(rendered.contains("codelink result job-a"));
+        assert!(rendered.contains("codelink logs job-a"));
+    }
+
+    #[test]
+    fn codelink_notification_lines_include_job_and_result_command() {
+        let notification = codex_codelink::CodeLinkNotification {
+            job_id: "job-a".to_string(),
+            notification_path: PathBuf::from("/tmp/job-a/notification.md"),
+            content: "[CodeLink] job job-a done\nsummary: completed\nartifact_dir: /tmp/job-a\n"
+                .to_string(),
+        };
+
+        let rendered = flatten(codelink_notification_lines(&notification));
+        assert!(rendered.contains("background job job-a completed"));
+        assert!(rendered.contains("codelink result job-a"));
+        assert!(rendered.contains("/tmp/job-a/notification.md"));
     }
 }

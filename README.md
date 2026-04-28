@@ -1,3 +1,15 @@
+> **CodeLink fork notice**
+>
+> CodeLink is an independent fork of OpenAI Codex focused on local background
+> task orchestration, background agent reminders, and durable job
+> notifications. It is a derivative work of OpenAI Codex under the Apache-2.0
+> License. The original `LICENSE` and `NOTICE` files are retained, and CodeLink
+> modifications are distributed under Apache-2.0 unless a file states otherwise.
+>
+> CodeLink is not affiliated with or endorsed by OpenAI. Claude Code is treated
+> only as a publicly observable behavior reference; leaked or proprietary Claude
+> Code source is not copied, ported, or mechanically rewritten in this project.
+
 <p align="center"><code>npm i -g @openai/codex</code><br />or <code>brew install --cask codex</code></p>
 <p align="center"><strong>Codex CLI</strong> is a coding agent from OpenAI that runs locally on your computer.
 <p align="center">

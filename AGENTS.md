@@ -1,3 +1,9 @@
+# CodeLink Fork
+
+Read `AGENT.md` before making CodeLink-specific changes. It defines the fork's
+background-job requirements and source-boundary rules, including the prohibition
+on copying, porting, or mechanically rewriting leaked Claude Code source.
+
 # Rust/codex-rs
 
 In the codex-rs folder where the rust code lives:
