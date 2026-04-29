@@ -191,6 +191,13 @@ variables, accepts `CODELINK_CONTEXT_PRUNER=0` to disable it, and keeps acceptin
 legacy `CODEX_MANGA_*` variables and `[manga-context-checkpoint ...]` directives
 for old sessions.
 
+CodeLink also carries a clean-room DCP-style compression path: prompt-visible
+messages get `[codelink-message-id mNNNN]` markers, the model may call the
+built-in `compress` tool for stale closed ranges, and the runtime replaces valid
+old ranges with `[codelink-compressed-block ...]` summaries on the next prompt
+build. Treat OpenCode-DCP as public behavior reference only; do not copy AGPL
+plugin source into this Apache-2.0 fork.
+
 The pruner must stay request-local: it may prune the prompt sent to the model,
 but must not rewrite stored rollout history. Keep it isolated from auth,
 billing, providers, and transport code.

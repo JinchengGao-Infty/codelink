@@ -16,6 +16,7 @@ pub enum ToolHandlerKind {
     CloseAgentV2,
     CodeModeExecute,
     CodeModeWait,
+    Compress,
     DynamicTool,
     FollowupTaskV2,
     Goal,

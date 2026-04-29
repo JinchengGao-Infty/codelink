@@ -28,6 +28,12 @@ CODELINK_CONTEXT_PRUNER=0 codelink
 
 Behavior:
 
+- Visible message text is annotated with stable ids such as
+  `[codelink-message-id m0007]` in the request sent to the model.
+- The model can call the built-in `compress` tool with `start_id`, `end_id`, and
+  `summary` for old closed ranges. On the next prompt build, CodeLink replaces
+  that range with a `[codelink-compressed-block ...]` summary item if the ids
+  still match and the range is outside the recent-turn guard.
 - Older image payloads in messages and tool outputs are replaced with compact
   text placeholders before a prompt is sent to the model.
 - Older `image_generation_call.result` payloads are replaced with a placeholder.
@@ -44,7 +50,22 @@ Behavior:
   model request being built.
 
 Directive mode is enabled by default. The model may request deliberate pruning
-after a stable checkpoint:
+after a stable checkpoint, or range compression with the `compress` tool:
+
+```json
+{
+  "topic": "phase A dry run setup",
+  "content": [
+    {
+      "start_id": "m0003",
+      "end_id": "m0011",
+      "summary": "Preserve exact files, commands, logs, decisions, failures, and current state."
+    }
+  ]
+}
+```
+
+Payload-only checkpoint directives are still supported:
 
 ```text
 [codelink-context-checkpoint scope=older-images] brief continuity summary and QA status
@@ -58,3 +79,7 @@ manga` is accepted as a compatibility no-op.
 
 Keep this feature isolated from auth, billing, providers, and transport code so
 upstream OpenAI Codex changes remain easy to merge.
+
+Implementation note: this is a clean-room CodeLink implementation inspired by
+the public behavior of OpenCode-DCP. Do not copy AGPL plugin source into this
+Apache-2.0 fork.

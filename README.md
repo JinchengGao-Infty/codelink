@@ -90,4 +90,5 @@ codelink --yolo
 ```
 
 See [docs/context-pruner.md](docs/context-pruner.md) for the request-local
-context pruner used by long manga/image sessions.
+context pruner and DCP-style `compress` tool used by long manga/image/tool-heavy
+sessions.

@@ -3,6 +3,7 @@ use codex_protocol::models::ContentItem;
 use codex_protocol::models::FunctionCallOutputContentItem;
 use codex_protocol::models::FunctionCallOutputPayload;
 use codex_protocol::models::ResponseItem;
+use serde::Deserialize;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
@@ -21,6 +22,8 @@ const DEFAULT_SEGMENT_TURNS: usize = 10;
 const DEFAULT_HEAVY_TOOL_CHARS: usize = 4096;
 const CHECKPOINT_PREFIX: &str = "[codelink-context-checkpoint ";
 const LEGACY_CHECKPOINT_PREFIX: &str = "[manga-context-checkpoint ";
+const MESSAGE_ID_LINE_PREFIX: &str = "[codelink-message-id ";
+const COMPRESSED_BLOCK_LINE_PREFIX: &str = "[codelink-compressed-block ";
 const CHECKPOINT_SCOPE_OLDER_IMAGES: &str = "scope=older-images";
 const CHECKPOINT_SCOPE_OLDER_HEAVY: &str = "scope=older-heavy";
 const LEGACY_TURNS_PREFIX: &str = "turns=";
@@ -35,8 +38,11 @@ const ERROR_TOOL_OUTPUT_PLACEHOLDER: &str =
     "[codelink-context-pruned: failed tool output removed from older history]";
 const HEAVY_TOOL_INPUT_PREFIX: &str = "[codelink-context-pruned: old heavy tool input removed";
 const HEAVY_TOOL_OUTPUT_PREFIX: &str = "[codelink-context-pruned: old heavy tool output removed";
-const CONTEXT_PRUNER_DIRECTIVE_INSTRUCTIONS: &str = r#"CodeLink manga profile context pruning:
-- You may request runtime context pruning after a stable manga checkpoint, usually every 10 pages or after visual QA has produced text verdicts.
+const CONTEXT_PRUNER_DIRECTIVE_INSTRUCTIONS: &str = r#"CodeLink dynamic context pruning:
+- Visible conversation messages include stable ids like [codelink-message-id m0007].
+- When a contiguous old range is closed and no longer needed verbatim, call the `compress` tool with start_id, end_id, and a high-fidelity summary. Only choose ranges older than the recent active turn.
+- Summaries must preserve decisions, file paths, commands, test results, failures, remote/session names, and exact current state.
+- You may also request payload-only runtime pruning after a stable checkpoint.
 - Emit exactly one checkpoint line when older image payloads are no longer needed:
   [codelink-context-checkpoint scope=older-images] brief continuity summary and QA status
 - Emit a heavy checkpoint when older tool/search/patch payloads are no longer needed:
@@ -72,6 +78,33 @@ struct ToolCallMetadata {
     input_chars: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CompressionRange {
+    start: usize,
+    end: usize,
+    start_id: String,
+    end_id: String,
+    summary: String,
+    topic: Option<String>,
+    order: usize,
+}
+
+#[derive(Debug, Deserialize)]
+struct CompressArgs {
+    #[serde(default)]
+    topic: Option<String>,
+    content: Vec<CompressArgsRange>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CompressArgsRange {
+    #[serde(alias = "startId")]
+    start_id: String,
+    #[serde(alias = "endId")]
+    end_id: String,
+    summary: String,
+}
+
 impl ContextPrunerConfig {
     fn from_env() -> Option<Self> {
         if !env_enabled_by_default(&[ENABLE_ENV, LEGACY_ENABLE_ENV]) {
@@ -104,13 +137,13 @@ pub(crate) fn developer_instructions_from_env() -> Option<String> {
     }
 }
 
-pub(crate) fn prune_items_for_prompt_from_env(items: &mut [ResponseItem]) {
+pub(crate) fn prune_items_for_prompt_from_env(items: &mut Vec<ResponseItem>) {
     if let Some(config) = ContextPrunerConfig::from_env() {
         prune_items_for_prompt(items, config);
     }
 }
 
-fn prune_items_for_prompt(items: &mut [ResponseItem], config: ContextPrunerConfig) {
+fn prune_items_for_prompt(items: &mut Vec<ResponseItem>, config: ContextPrunerConfig) {
     let checkpoint = if config.enable_directives {
         latest_checkpoint_directive(items)
     } else {
@@ -118,6 +151,7 @@ fn prune_items_for_prompt(items: &mut [ResponseItem], config: ContextPrunerConfi
     };
     if config.enable_directives {
         strip_checkpoint_directives_from_prompt(items);
+        apply_model_requested_compressions(items, config.keep_recent_turns);
     }
 
     let automatic_cutoff = pruning_cutoff(items, config.keep_recent_turns, config.segment_turns);
@@ -128,16 +162,18 @@ fn prune_items_for_prompt(items: &mut [ResponseItem], config: ContextPrunerConfi
     let image_cutoff = automatic_cutoff.max(checkpoint_image_cutoff);
     let heavy_cutoff = automatic_cutoff.max(checkpoint_heavy_cutoff);
     let maintenance_cutoff = image_cutoff.max(heavy_cutoff);
-    if maintenance_cutoff == 0 {
-        return;
+    if maintenance_cutoff > 0 {
+        let image_placeholder = image_placeholder(checkpoint.as_ref());
+        prune_duplicate_tool_outputs(items, maintenance_cutoff);
+        purge_old_failed_tool_payloads(items, maintenance_cutoff);
+        prune_heavy_tool_payloads(items, heavy_cutoff, config.heavy_tool_chars);
+        for item in &mut items[..image_cutoff] {
+            prune_item_images(item, &image_placeholder);
+        }
     }
 
-    let image_placeholder = image_placeholder(checkpoint.as_ref());
-    prune_duplicate_tool_outputs(items, maintenance_cutoff);
-    purge_old_failed_tool_payloads(items, maintenance_cutoff);
-    prune_heavy_tool_payloads(items, heavy_cutoff, config.heavy_tool_chars);
-    for item in &mut items[..image_cutoff] {
-        prune_item_images(item, &image_placeholder);
+    if config.enable_directives {
+        inject_message_ids_for_prompt(items);
     }
 }
 
@@ -402,6 +438,185 @@ fn message_content_items_mut(item: &mut ResponseItem) -> Option<&mut Vec<Content
         ResponseItem::Message { content, .. } => Some(content),
         _ => None,
     }
+}
+
+fn apply_model_requested_compressions(items: &mut Vec<ResponseItem>, keep_recent_turns: usize) {
+    let ranges = collect_model_requested_compressions(items, keep_recent_turns);
+    if ranges.is_empty() {
+        return;
+    }
+
+    let ranges = select_non_overlapping_compression_ranges(ranges);
+    if ranges.is_empty() {
+        return;
+    }
+
+    let original = items.clone();
+    items.clear();
+    let mut cursor = 0;
+    for (block_index, range) in ranges.iter().enumerate() {
+        if cursor < range.start {
+            items.extend_from_slice(&original[cursor..range.start]);
+        }
+        items.push(compressed_block_item(block_index + 1, range));
+        cursor = range.end.saturating_add(1);
+    }
+    if cursor < original.len() {
+        items.extend_from_slice(&original[cursor..]);
+    }
+}
+
+fn collect_model_requested_compressions(
+    items: &[ResponseItem],
+    keep_recent_turns: usize,
+) -> Vec<CompressionRange> {
+    let message_index_by_id = message_index_by_id(items);
+    if message_index_by_id.is_empty() {
+        return Vec::new();
+    }
+
+    let recent_guard_index = recent_turn_guard_index(items, keep_recent_turns);
+    let mut ranges = Vec::new();
+    let mut order = 0;
+    for item in items {
+        let Some(arguments) = compress_call_arguments(item) else {
+            continue;
+        };
+        let Ok(args) = serde_json::from_str::<CompressArgs>(arguments) else {
+            continue;
+        };
+        for content in args.content {
+            order += 1;
+            let Some(start) = message_index_by_id.get(content.start_id.trim()).copied() else {
+                continue;
+            };
+            let Some(end) = message_index_by_id.get(content.end_id.trim()).copied() else {
+                continue;
+            };
+            if start > end || end >= recent_guard_index {
+                continue;
+            }
+            let summary = content.summary.trim();
+            if summary.is_empty() {
+                continue;
+            }
+            ranges.push(CompressionRange {
+                start,
+                end,
+                start_id: content.start_id.trim().to_string(),
+                end_id: content.end_id.trim().to_string(),
+                summary: summary.to_string(),
+                topic: args.topic.clone().and_then(|topic| {
+                    let topic = topic.trim().to_string();
+                    (!topic.is_empty()).then_some(topic)
+                }),
+                order,
+            });
+        }
+    }
+    ranges
+}
+
+fn message_index_by_id(items: &[ResponseItem]) -> HashMap<String, usize> {
+    let mut index_by_id = HashMap::new();
+    let mut message_index = 1;
+    for (item_index, item) in items.iter().enumerate() {
+        if matches!(item, ResponseItem::Message { .. }) {
+            index_by_id.insert(format_message_id(message_index), item_index);
+            message_index += 1;
+        }
+    }
+    index_by_id
+}
+
+fn compress_call_arguments(item: &ResponseItem) -> Option<&str> {
+    match item {
+        ResponseItem::FunctionCall {
+            name,
+            namespace,
+            arguments,
+            ..
+        } if name == "compress" && namespace.is_none() => Some(arguments.as_str()),
+        ResponseItem::CustomToolCall { name, input, .. } if name == "compress" => {
+            Some(input.as_str())
+        }
+        _ => None,
+    }
+}
+
+fn select_non_overlapping_compression_ranges(
+    mut ranges: Vec<CompressionRange>,
+) -> Vec<CompressionRange> {
+    ranges.sort_by_key(|range| range.order);
+    let mut selected: Vec<CompressionRange> = Vec::new();
+    for range in ranges.into_iter().rev() {
+        if selected
+            .iter()
+            .any(|existing| ranges_overlap(&range, existing))
+        {
+            continue;
+        }
+        selected.push(range);
+    }
+    selected.sort_by_key(|range| range.start);
+    selected
+}
+
+fn ranges_overlap(left: &CompressionRange, right: &CompressionRange) -> bool {
+    left.start <= right.end && right.start <= left.end
+}
+
+fn compressed_block_item(block_index: usize, range: &CompressionRange) -> ResponseItem {
+    let topic = range
+        .topic
+        .as_deref()
+        .map(|topic| format!(" topic=\"{}\"", topic.replace('"', "'")))
+        .unwrap_or_default();
+    let text = format!(
+        "{COMPRESSED_BLOCK_LINE_PREFIX}b{block_index:04}{topic}; source={}..{}]\n{}",
+        range.start_id, range.end_id, range.summary
+    );
+    ResponseItem::Message {
+        id: None,
+        role: "assistant".to_string(),
+        content: vec![ContentItem::OutputText { text }],
+        phase: None,
+    }
+}
+
+fn inject_message_ids_for_prompt(items: &mut [ResponseItem]) {
+    let mut message_index = 1;
+    for item in items {
+        let Some(content) = message_content_items_mut(item) else {
+            continue;
+        };
+        let id = format_message_id(message_index);
+        message_index += 1;
+        prepend_message_id(content, &id);
+    }
+}
+
+fn prepend_message_id(content: &mut Vec<ContentItem>, id: &str) {
+    let marker = format!("{MESSAGE_ID_LINE_PREFIX}{id}]");
+    for content_item in content.iter_mut() {
+        let Some(text) = content_item_text_mut(content_item) else {
+            continue;
+        };
+        if text.starts_with(MESSAGE_ID_LINE_PREFIX) {
+            return;
+        }
+        if text.is_empty() {
+            *text = marker;
+        } else {
+            *text = format!("{marker}\n{text}");
+        }
+        return;
+    }
+    content.insert(0, ContentItem::InputText { text: marker });
+}
+
+fn format_message_id(message_index: usize) -> String {
+    format!("m{message_index:04}")
 }
 
 fn content_item_text(item: &ContentItem) -> Option<&str> {
@@ -895,6 +1110,16 @@ mod tests {
         }
     }
 
+    fn compress_call(arguments: &str) -> ResponseItem {
+        ResponseItem::FunctionCall {
+            id: None,
+            name: "compress".to_string(),
+            namespace: None,
+            arguments: arguments.to_string(),
+            call_id: "compress-call".to_string(),
+        }
+    }
+
     fn config(keep_recent_turns: usize, segment_turns: usize) -> ContextPrunerConfig {
         ContextPrunerConfig {
             keep_recent_turns,
@@ -917,6 +1142,124 @@ mod tests {
         }
     }
 
+    fn prune_items_for_prompt_for_test(items: &mut Vec<ResponseItem>, config: ContextPrunerConfig) {
+        prune_items_for_prompt(items, config);
+        strip_message_ids_for_test(items);
+    }
+
+    fn strip_message_ids_for_test(items: &mut [ResponseItem]) {
+        for item in items {
+            let Some(content) = message_content_items_mut(item) else {
+                continue;
+            };
+            for content_item in content.iter_mut() {
+                let Some(text) = content_item_text_mut(content_item) else {
+                    continue;
+                };
+                *text = strip_message_id_for_test(text);
+            }
+            content.retain(|content_item| match content_item {
+                ContentItem::InputText { text } | ContentItem::OutputText { text } => {
+                    !text.is_empty()
+                }
+                ContentItem::InputImage { .. } => true,
+            });
+        }
+    }
+
+    fn strip_message_id_for_test(text: &str) -> String {
+        let Some(rest) = text.strip_prefix(MESSAGE_ID_LINE_PREFIX) else {
+            return text.to_string();
+        };
+        match rest.find("]\n") {
+            Some(marker_end) => rest[marker_end + 2..].to_string(),
+            None if rest.ends_with(']') => String::new(),
+            None => text.to_string(),
+        }
+    }
+
+    #[test]
+    fn injects_visible_message_ids_for_dcp() {
+        let mut items = vec![user_text("first"), assistant_text("second")];
+
+        prune_items_for_prompt(&mut items, config(1, 10));
+
+        assert!(matches!(
+            &items[0],
+            ResponseItem::Message { content, .. }
+                if matches!(&content[0], ContentItem::InputText { text }
+                    if text.starts_with("[codelink-message-id m0001]\nfirst"))
+        ));
+        assert!(matches!(
+            &items[1],
+            ResponseItem::Message { content, .. }
+                if matches!(&content[0], ContentItem::OutputText { text }
+                    if text.starts_with("[codelink-message-id m0002]\nsecond"))
+        ));
+    }
+
+    #[test]
+    fn compress_tool_range_replaces_old_closed_messages() {
+        let mut items = vec![
+            user_text("old request"),
+            assistant_text("old answer"),
+            compress_call(
+                r#"{"topic":"setup","content":[{"start_id":"m0001","end_id":"m0002","summary":"Old setup is complete. Keep path /tmp/demo and command cargo test."}]}"#,
+            ),
+            ResponseItem::FunctionCallOutput {
+                call_id: "compress-call".to_string(),
+                output: FunctionCallOutputPayload::from_text("recorded".to_string()),
+            },
+            user_text("recent"),
+        ];
+
+        prune_items_for_prompt(&mut items, config(1, 10));
+
+        assert_eq!(items.len(), 4);
+        assert!(matches!(
+            &items[0],
+            ResponseItem::Message { role, content, .. }
+                if role == "assistant"
+                    && matches!(&content[0], ContentItem::OutputText { text }
+                        if text.contains("[codelink-compressed-block b0001 topic=\"setup\"; source=m0001..m0002]")
+                            && text.contains("Old setup is complete")
+                            && text.starts_with("[codelink-message-id m0001]\n"))
+        ));
+        assert!(matches!(
+            &items[3],
+            ResponseItem::Message { content, .. }
+                if matches!(&content[0], ContentItem::InputText { text }
+                    if text.starts_with("[codelink-message-id m0002]\nrecent"))
+        ));
+    }
+
+    #[test]
+    fn compress_tool_does_not_cross_recent_turn_guard() {
+        let mut items = vec![
+            user_text("old request"),
+            assistant_text("old answer"),
+            user_text("recent"),
+            compress_call(
+                r#"{"content":[{"startId":"m0001","endId":"m0003","summary":"invalid because it reaches the recent turn"}]}"#,
+            ),
+        ];
+
+        prune_items_for_prompt(&mut items, config(1, 10));
+        strip_message_ids_for_test(&mut items);
+
+        assert_eq!(
+            items,
+            vec![
+                user_text("old request"),
+                assistant_text("old answer"),
+                user_text("recent"),
+                compress_call(
+                    r#"{"content":[{"startId":"m0001","endId":"m0003","summary":"invalid because it reaches the recent turn"}]}"#,
+                ),
+            ]
+        );
+    }
+
     #[test]
     fn prunes_images_before_recent_turn_boundary() {
         let mut items = vec![
@@ -931,7 +1274,7 @@ mod tests {
             user_image("data:image/png;base64,recent"),
         ];
 
-        prune_items_for_prompt(&mut items, config(1, 1));
+        prune_items_for_prompt_for_test(&mut items, config(1, 1));
 
         assert_eq!(
             items,
@@ -975,7 +1318,7 @@ mod tests {
             user_text("recent"),
         ];
 
-        prune_items_for_prompt(&mut items, config(1, 1));
+        prune_items_for_prompt_for_test(&mut items, config(1, 1));
 
         assert_eq!(
             items,
@@ -1001,7 +1344,7 @@ mod tests {
     fn keeps_all_images_when_history_has_only_recent_turns() {
         let mut items = vec![user_image("data:image/png;base64,only")];
 
-        prune_items_for_prompt(&mut items, config(1, 1));
+        prune_items_for_prompt_for_test(&mut items, config(1, 1));
 
         assert_eq!(items, vec![user_image("data:image/png;base64,only")]);
     }
@@ -1015,7 +1358,7 @@ mod tests {
             user_image("data:image/png;base64,turn4"),
         ];
 
-        prune_items_for_prompt(&mut items, config(1, 3));
+        prune_items_for_prompt_for_test(&mut items, config(1, 3));
 
         assert_eq!(
             items,
@@ -1078,7 +1421,7 @@ mod tests {
             user_text("recent"),
         ];
 
-        prune_items_for_prompt(&mut items, config(1, 1));
+        prune_items_for_prompt_for_test(&mut items, config(1, 1));
 
         assert_eq!(
             items[2],
@@ -1119,7 +1462,7 @@ mod tests {
             user_text("recent"),
         ];
 
-        prune_items_for_prompt(&mut items, config(1, 1));
+        prune_items_for_prompt_for_test(&mut items, config(1, 1));
 
         assert_eq!(
             items[1],
@@ -1175,7 +1518,7 @@ mod tests {
             },
         ];
 
-        prune_items_for_prompt(&mut items, config_with_heavy(1, 10, 20));
+        prune_items_for_prompt_for_test(&mut items, config_with_heavy(1, 10, 20));
 
         assert!(matches!(
             &items[1],
@@ -1231,7 +1574,7 @@ mod tests {
             user_text("recent"),
         ];
 
-        prune_items_for_prompt(&mut items, config_with_heavy(1, 10, 20));
+        prune_items_for_prompt_for_test(&mut items, config_with_heavy(1, 10, 20));
 
         assert_eq!(
             items[1],
@@ -1263,7 +1606,7 @@ mod tests {
             user_image("data:image/png;base64,turn4"),
         ];
 
-        prune_items_for_prompt(&mut items, config(1, 10));
+        prune_items_for_prompt_for_test(&mut items, config(1, 10));
 
         let expected_placeholder =
             format!("{IMAGE_PLACEHOLDER}; checkpoint summary: pages 1-3 QA OK");
@@ -1331,7 +1674,7 @@ mod tests {
             user_text("continue"),
         ];
 
-        prune_items_for_prompt(&mut items, config(1, 10));
+        prune_items_for_prompt_for_test(&mut items, config(1, 10));
 
         let expected_placeholder =
             format!("{IMAGE_PLACEHOLDER}; checkpoint summary: pages 1-4 QA OK");
@@ -1372,7 +1715,7 @@ mod tests {
             assistant_text("[codelink-context-checkpoint scope=older-images] too aggressive"),
         ];
 
-        prune_items_for_prompt(&mut items, config(1, 10));
+        prune_items_for_prompt_for_test(&mut items, config(1, 10));
 
         assert!(matches!(
             &items[0],

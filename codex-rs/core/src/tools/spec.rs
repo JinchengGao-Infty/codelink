@@ -79,6 +79,7 @@ pub(crate) fn build_specs_with_discoverable_tools(
     use crate::tools::handlers::ApplyPatchHandler;
     use crate::tools::handlers::CodeModeExecuteHandler;
     use crate::tools::handlers::CodeModeWaitHandler;
+    use crate::tools::handlers::CompressHandler;
     use crate::tools::handlers::DynamicToolHandler;
     use crate::tools::handlers::GoalHandler;
     use crate::tools::handlers::ListDirHandler;
@@ -167,6 +168,7 @@ pub(crate) fn build_specs_with_discoverable_tools(
     let tool_suggest_handler = Arc::new(ToolSuggestHandler);
     let code_mode_handler = Arc::new(CodeModeExecuteHandler);
     let code_mode_wait_handler = Arc::new(CodeModeWaitHandler);
+    let compress_handler = Arc::new(CompressHandler);
     let unavailable_tool_handler = Arc::new(UnavailableToolHandler);
     let mut existing_spec_names = plan
         .specs
@@ -203,6 +205,9 @@ pub(crate) fn build_specs_with_discoverable_tools(
             }
             ToolHandlerKind::CodeModeWait => {
                 builder.register_handler(handler.name, code_mode_wait_handler.clone());
+            }
+            ToolHandlerKind::Compress => {
+                builder.register_handler(handler.name, compress_handler.clone());
             }
             ToolHandlerKind::DynamicTool => {
                 builder.register_handler(handler.name, dynamic_tool_handler.clone());
