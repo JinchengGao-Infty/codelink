@@ -40,6 +40,9 @@ pub enum CommandKind {
     /// Run a background Codex agent task.
     Bg(BgArgs),
 
+    /// Wake the active CodeLink session after a delay.
+    Timer(TimerArgs),
+
     /// Watch a remote tmux/log job in the background.
     WatchRemote(WatchRemoteArgs),
 
@@ -84,6 +87,21 @@ pub struct BgArgs {
     /// Prompt for `codelink exec`.
     #[arg(value_name = "PROMPT", required = true)]
     pub prompt: Vec<String>,
+}
+
+#[derive(Debug, Args, Clone)]
+pub struct TimerArgs {
+    /// Stable human-readable job id. Defaults to an auto-generated id.
+    #[arg(long)]
+    pub job_id: Option<String>,
+
+    /// Delay before waking the active session. Examples: 60s, 5m, 2h.
+    #[arg(long, value_name = "DURATION")]
+    pub after: String,
+
+    /// Message shown in the timer result and wake notification.
+    #[arg(value_name = "MESSAGE", required = true)]
+    pub message: Vec<String>,
 }
 
 #[derive(Debug, Args, Clone)]
@@ -218,6 +236,7 @@ impl fmt::Display for JobStatus {
 enum JobKind {
     RemoteTmux,
     CodexAgent,
+    Timer,
 }
 
 impl JobKind {
@@ -225,6 +244,7 @@ impl JobKind {
         match self {
             Self::RemoteTmux => "remote_tmux",
             Self::CodexAgent => "codex_agent",
+            Self::Timer => "timer",
         }
     }
 
@@ -232,6 +252,7 @@ impl JobKind {
         match value {
             "remote_tmux" => Ok(Self::RemoteTmux),
             "codex_agent" => Ok(Self::CodexAgent),
+            "timer" => Ok(Self::Timer),
             other => bail!("unknown CodeLink job kind `{other}`"),
         }
     }
@@ -255,6 +276,12 @@ struct CodexAgentSpec {
     codex_bin: String,
     codex_args: Vec<String>,
     prompt: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct TimerSpec {
+    delay_seconds: u64,
+    message: String,
 }
 
 #[derive(Debug)]
@@ -371,6 +398,7 @@ pub fn notify_active_session() -> Result<()> {
 pub async fn run_main(cli: Cli) -> Result<()> {
     match cli.subcommand {
         CommandKind::Bg(args) => bg(args).await,
+        CommandKind::Timer(args) => timer(args).await,
         CommandKind::WatchRemote(args) => watch_remote(args).await,
         CommandKind::Jobs(args) => list_jobs(args).await,
         CommandKind::Result(args) => print_result(args).await,
@@ -437,6 +465,70 @@ async fn bg(args: BgArgs) -> Result<()> {
     println!("job_id: {job_id}");
     println!("cwd: {}", cwd.display());
     println!("codex_bin: {}", spec.codex_bin);
+    println!("artifact_dir: {}", artifact_dir.display());
+    println!("check: codel result {job_id}; codel logs {job_id}");
+    Ok(())
+}
+
+async fn timer(args: TimerArgs) -> Result<()> {
+    let message = args.message.join(" ");
+    if message.trim().is_empty() {
+        bail!("timer message must not be empty");
+    }
+    let delay_seconds = parse_duration_seconds(&args.after)?;
+
+    let paths = RuntimePaths::discover()?;
+    paths.ensure().await?;
+    let pool = open_store(&paths).await?;
+    let job_id = args.job_id.unwrap_or_else(default_job_id);
+    let artifact_dir = paths.jobs_dir.join(&job_id);
+    tokio::fs::create_dir_all(&artifact_dir)
+        .await
+        .with_context(|| format!("failed to create {}", artifact_dir.display()))?;
+
+    let spec = TimerSpec {
+        delay_seconds,
+        message,
+    };
+    let spec_json = serde_json::to_string_pretty(&spec)?;
+    let now = now_seconds();
+    sqlx::query(
+        r#"
+        INSERT INTO jobs (
+            job_id, kind, status, cwd, spec_json, artifact_dir,
+            created_at, updated_at, last_heartbeat_at, last_summary
+        )
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?7, ?8)
+        "#,
+    )
+    .bind(&job_id)
+    .bind(JobKind::Timer.as_str())
+    .bind(JobStatus::Running.as_str())
+    .bind(std::env::current_dir()?.display().to_string())
+    .bind(&spec_json)
+    .bind(artifact_dir.display().to_string())
+    .bind(now)
+    .bind(format!("timer due in {delay_seconds}s"))
+    .execute(&pool)
+    .await
+    .with_context(|| format!("failed to register CodeLink timer `{job_id}`"))?;
+
+    write_artifact(&artifact_dir.join("spec.json"), &spec_json).await?;
+    append_history(
+        &artifact_dir,
+        &format!(
+            "{} registered timer due in {delay_seconds}s\n",
+            timestamp_line()
+        ),
+    )
+    .await?;
+    spawn_worker(&job_id, &artifact_dir).await?;
+    let _ = notify_active_session();
+
+    println!("STATUS: STARTED — CodeLink timer registered");
+    println!("job_id: {job_id}");
+    println!("after: {delay_seconds}s");
+    println!("message: {}", spec.message);
     println!("artifact_dir: {}", artifact_dir.display());
     println!("check: codel result {job_id}; codel logs {job_id}");
     Ok(())
@@ -567,7 +659,85 @@ async fn run_worker(args: WorkerArgs) -> Result<()> {
     match job.kind {
         JobKind::RemoteTmux => run_remote_tmux_worker(pool, job).await,
         JobKind::CodexAgent => run_codex_agent_worker(pool, job).await,
+        JobKind::Timer => run_timer_worker(pool, job).await,
     }
+}
+
+async fn run_timer_worker(pool: SqlitePool, job: JobRecord) -> Result<()> {
+    let spec: TimerSpec = serde_json::from_str(&job.spec_json)
+        .with_context(|| format!("failed to parse spec for job `{}`", job.job_id))?;
+    if job.status == JobStatus::Canceled {
+        write_notification(
+            &pool,
+            &job,
+            JobStatus::Canceled,
+            "timer canceled before start",
+        )
+        .await?;
+        return Ok(());
+    }
+
+    let started_at = now_seconds();
+    let due_at = started_at.saturating_add(spec.delay_seconds as i64);
+    loop {
+        let latest = load_job(&pool, &job.job_id).await?;
+        if latest.status == JobStatus::Canceled {
+            write_timer_result(&job, JobStatus::Canceled, &spec, "timer canceled").await?;
+            write_notification(&pool, &latest, JobStatus::Canceled, "timer canceled").await?;
+            return Ok(());
+        }
+        if latest.status.is_terminal() {
+            return Ok(());
+        }
+
+        let now = now_seconds();
+        if now >= due_at {
+            break;
+        }
+        let remaining = due_at.saturating_sub(now);
+        let summary = format!("timer due in {remaining}s");
+        sqlx::query(
+            "UPDATE jobs SET updated_at = ?1, last_heartbeat_at = ?1, last_summary = ?2 WHERE job_id = ?3",
+        )
+        .bind(now)
+        .bind(summary)
+        .bind(&job.job_id)
+        .execute(&pool)
+        .await?;
+        sleep(Duration::from_secs(remaining.min(5) as u64)).await;
+    }
+
+    let summary = format!("timer fired: {}", spec.message);
+    write_timer_result(&job, JobStatus::Done, &spec, &summary).await?;
+    sqlx::query(
+        "UPDATE jobs SET status = ?1, updated_at = ?2, last_heartbeat_at = ?2, last_summary = ?3 WHERE job_id = ?4",
+    )
+    .bind(JobStatus::Done.as_str())
+    .bind(now_seconds())
+    .bind(&summary)
+    .bind(&job.job_id)
+    .execute(&pool)
+    .await?;
+    append_history(
+        &job.artifact_dir,
+        &format!("{} {summary}\n", timestamp_line()),
+    )
+    .await?;
+    write_notification(&pool, &job, JobStatus::Done, &summary).await?;
+    Ok(())
+}
+
+async fn write_timer_result(
+    job: &JobRecord,
+    status: JobStatus,
+    spec: &TimerSpec,
+    summary: &str,
+) -> Result<()> {
+    let result = format!(
+        "# CodeLink Timer Result\n\nstatus: {status}\njob_id: {}\nsummary: {summary}\n\nmessage: {}\n",
+        job.job_id, spec.message
+    );
+    write_artifact(&job.artifact_dir.join("result.md"), &result).await
 }
 
 async fn run_remote_tmux_worker(pool: SqlitePool, job: JobRecord) -> Result<()> {
@@ -1304,6 +1474,30 @@ fn compile_required_regex(raw: &str, name: &str) -> Result<Regex> {
     Regex::new(raw).with_context(|| format!("invalid {name}: {raw}"))
 }
 
+fn parse_duration_seconds(value: &str) -> Result<u64> {
+    let raw = value.trim();
+    if raw.is_empty() {
+        bail!("duration must not be empty");
+    }
+    let (number, multiplier) = match raw.as_bytes().last().copied() {
+        Some(b's') | Some(b'S') => (&raw[..raw.len() - 1], 1_u64),
+        Some(b'm') | Some(b'M') => (&raw[..raw.len() - 1], 60_u64),
+        Some(b'h') | Some(b'H') => (&raw[..raw.len() - 1], 3600_u64),
+        Some(byte) if byte.is_ascii_digit() => (raw, 1_u64),
+        _ => bail!("duration must be a positive integer with optional s, m, or h suffix"),
+    };
+    let amount = number
+        .trim()
+        .parse::<u64>()
+        .with_context(|| format!("invalid duration `{value}`"))?;
+    if amount == 0 {
+        bail!("duration must be greater than zero");
+    }
+    amount
+        .checked_mul(multiplier)
+        .context("duration is too large")
+}
+
 fn shell_quote(value: &str) -> String {
     shlex::try_quote(value)
         .map(|value| value.into_owned())
@@ -1365,6 +1559,17 @@ mod tests {
     fn parse_progress_uses_latest_segment_count() {
         let log = "progress: 100 / 200 segments\nlater 1817 / 20656 segments";
         assert_eq!(parse_progress(log), Some("1817/20656".to_string()));
+    }
+
+    #[test]
+    fn parse_duration_seconds_accepts_common_suffixes() -> Result<()> {
+        assert_eq!(parse_duration_seconds("15")?, 15);
+        assert_eq!(parse_duration_seconds("15s")?, 15);
+        assert_eq!(parse_duration_seconds("2m")?, 120);
+        assert_eq!(parse_duration_seconds("1h")?, 3600);
+        assert!(parse_duration_seconds("0s").is_err());
+        assert!(parse_duration_seconds("5d").is_err());
+        Ok(())
     }
 
     #[test]

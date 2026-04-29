@@ -26,6 +26,7 @@ use codex_codelink::CommandKind as CodeLinkCommandKind;
 use codex_codelink::JobIdArgs as CodeLinkJobIdArgs;
 use codex_codelink::JobsArgs as CodeLinkJobsArgs;
 use codex_codelink::NotificationsArgs as CodeLinkNotificationsArgs;
+use codex_codelink::TimerArgs as CodeLinkTimerArgs;
 use codex_codelink::WatchRemoteArgs as CodeLinkWatchRemoteArgs;
 use codex_codelink::WorkerArgs as CodeLinkWorkerArgs;
 use codex_exec::Cli as ExecCli;
@@ -171,6 +172,9 @@ enum Subcommand {
 
     /// Run a background CodeLink agent task.
     Bg(CodeLinkBgArgs),
+
+    /// Wake the active CodeLink session after a delay.
+    Timer(CodeLinkTimerArgs),
 
     /// Watch a remote tmux/log job in the background.
     WatchRemote(CodeLinkWatchRemoteArgs),
@@ -1088,6 +1092,17 @@ async fn cli_main(arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()> {
             )?;
             codex_codelink::run_main(CodeLinkCli {
                 subcommand: CodeLinkCommandKind::Bg(args),
+            })
+            .await?;
+        }
+        Some(Subcommand::Timer(args)) => {
+            reject_remote_mode_for_subcommand(
+                root_remote.as_deref(),
+                root_remote_auth_token_env.as_deref(),
+                "timer",
+            )?;
+            codex_codelink::run_main(CodeLinkCli {
+                subcommand: CodeLinkCommandKind::Timer(args),
             })
             .await?;
         }

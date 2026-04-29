@@ -81,6 +81,15 @@ codel notifications
 The `codex codelink ...` subcommand may remain as a compatibility path during
 development, but the public CodeLink command should be `codel`; `codelink` remains a long-form alias.
 
+Timer jobs are first-class CodeLink background jobs:
+
+```sh
+codel timer --after 2h "Check the remote run and report status"
+```
+
+They use the same job store, status line, wake socket, notification, and main AI
+wake turn as `bg` and `watch-remote`.
+
 ## Initial Job Contract
 
 Every background job should record:

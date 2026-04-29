@@ -11,6 +11,7 @@ Do not inspect or copy leaked proprietary client source when building this fork.
 ## MVP
 
 - `codel bg ...`: start a background Codex agent task.
+- `codel timer --after 5m ...`: wake the active CodeLink session after a delay.
 - `codel watch-remote ...`: start a background remote tmux/log watcher.
 - `codel jobs`: list running, completed, failed, and canceled jobs.
 - `codel result <job_id>`: print latest job result and notification.
@@ -47,6 +48,7 @@ Add a CodeLink command surface first, without changing the core model loop.
 The public command is `codel`, with `codelink` kept as a long-form alias. `codex codelink ...` may remain as a compatibility path while this fork is still close to upstream Codex.
 
 - `codel watch-remote`
+- `codel timer`
 - `codel bg`
 - `codel jobs`
 - `codel result`
@@ -113,6 +115,19 @@ Artifacts are written under `~/.codelink/jobs/audit-readme/`:
 `codel cancel <job_id>` marks the job canceled; the worker observes that on
 its next heartbeat and kills the child process.
 
+### Timer Jobs
+
+Timer jobs are lightweight scheduled wakeups that use the same durable store,
+status line, notification, and active wake path:
+
+```sh
+codel timer --job-id check-phase-a --after 2h "Check the remote Phase A run"
+```
+
+When the delay expires, CodeLink writes `result.md`, creates `notification.md`,
+and wakes the active TUI. The main AI then reads `codel result <job_id>` through
+the same automatic wake turn used by background agents.
+
 ### TUI Notification Bridge
 
 The active CodeLink TUI registers a local wake socket and keeps a slow polling
@@ -140,12 +155,12 @@ conversation item so the main agent can react to completed work.
 ## Implementation Order
 
 1. Add the job store and filesystem layout.
-2. Add CLI commands for `bg`, `watch-remote`, `jobs`, `result`, `logs`,
+2. Add CLI commands for `bg`, `timer`, `watch-remote`, `jobs`, `result`, `logs`,
    `notifications`, and `cancel`.
 3. Spawn background Codex worker processes with log capture.
 4. Add worktree isolation and diff capture.
 5. Add TUI polling and completion notifications.
-6. Add scheduled jobs.
+6. Add richer scheduled jobs.
 7. Add background shell jobs after agent jobs are stable.
 
 ## Non-Goals For The First Pass
