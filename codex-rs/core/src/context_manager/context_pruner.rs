@@ -370,9 +370,7 @@ fn prune_item_images(item: &mut ResponseItem, image_placeholder: &str) {
             prune_function_output_images(output, image_placeholder);
         }
         ResponseItem::ImageGenerationCall { result, .. } => {
-            if !result.is_empty() {
-                *result = image_placeholder.to_string();
-            }
+            result.clear();
         }
         ResponseItem::Reasoning { .. }
         | ResponseItem::LocalShellCall { .. }
@@ -1292,7 +1290,7 @@ mod tests {
                     id: "ig-old".to_string(),
                     status: "completed".to_string(),
                     revised_prompt: None,
-                    result: IMAGE_PLACEHOLDER.to_string(),
+                    result: String::new(),
                 },
                 user_text("recent"),
                 user_image("data:image/png;base64,recent"),
