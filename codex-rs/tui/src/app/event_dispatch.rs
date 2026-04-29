@@ -545,16 +545,7 @@ impl App {
                     && !self.chat_widget.has_active_plan_stream()
                 {
                     let text = codelink_wake_prompt(&notifications);
-                    self.submit_active_thread_op(
-                        app_server,
-                        AppCommand::from(codex_protocol::protocol::Op::from(vec![
-                            codex_protocol::user_input::UserInput::Text {
-                                text,
-                                text_elements: Vec::new(),
-                            },
-                        ])),
-                    )
-                    .await?;
+                    self.chat_widget.submit_codelink_wake_message(text);
                 }
             }
             AppEvent::StartFileSearch(query) => {
