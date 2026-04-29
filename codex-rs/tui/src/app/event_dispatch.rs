@@ -536,9 +536,25 @@ impl App {
                 }
             }
             AppEvent::CodeLinkNotificationsLoaded { notifications } => {
-                for notification in notifications {
+                for notification in &notifications {
                     self.chat_widget
-                        .add_plain_history_lines(codelink_notification_lines(&notification));
+                        .add_plain_history_lines(codelink_notification_lines(notification));
+                }
+                if !notifications.is_empty()
+                    && !self.chat_widget.has_active_agent_stream()
+                    && !self.chat_widget.has_active_plan_stream()
+                {
+                    let text = codelink_wake_prompt(&notifications);
+                    self.submit_active_thread_op(
+                        app_server,
+                        AppCommand::from(codex_protocol::protocol::Op::from(vec![
+                            codex_protocol::user_input::UserInput::Text {
+                                text,
+                                text_elements: Vec::new(),
+                            },
+                        ])),
+                    )
+                    .await?;
                 }
             }
             AppEvent::StartFileSearch(query) => {
@@ -1857,6 +1873,23 @@ fn codelink_notification_lines(
     lines
 }
 
+fn codelink_wake_prompt(notifications: &[codex_codelink::CodeLinkNotification]) -> String {
+    let mut text = String::from(
+        "[CodeLink wake]\n\
+        One or more background jobs completed while this session was idle.\n\
+        Read the relevant result(s), summarize the outcome, and continue the pending work without asking the user to poll manually.\n",
+    );
+    for notification in notifications {
+        text.push_str("\n- job_id: ");
+        text.push_str(&notification.job_id);
+        text.push_str("\n  result: codel result ");
+        text.push_str(&notification.job_id);
+        text.push_str("\n  notification: ");
+        text.push_str(&notification.notification_path.display().to_string());
+    }
+    text
+}
+
 #[cfg(test)]
 mod codelink_notification_tests {
     use super::*;
@@ -1903,5 +1936,20 @@ mod codelink_notification_tests {
         assert!(rendered.contains("background job job-a completed"));
         assert!(rendered.contains("codel result job-a"));
         assert!(rendered.contains("/tmp/job-a/notification.md"));
+    }
+
+    #[test]
+    fn codelink_wake_prompt_instructs_model_to_read_result() {
+        let notification = codex_codelink::CodeLinkNotification {
+            job_id: "job-a".to_string(),
+            notification_path: PathBuf::from("/tmp/job-a/notification.md"),
+            content: "done".to_string(),
+        };
+
+        let prompt = codelink_wake_prompt(&[notification]);
+        assert!(prompt.contains("[CodeLink wake]"));
+        assert!(prompt.contains("codel result job-a"));
+        assert!(prompt.contains("/tmp/job-a/notification.md"));
+        assert!(prompt.contains("continue the pending work"));
     }
 }
