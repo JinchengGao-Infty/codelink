@@ -73,20 +73,20 @@ This repository is licensed under the [Apache-2.0 License](LICENSE).
 
 ## CodeLink Additions
 
-CodeLink exposes the fork as `codelink` and adds local background job
+CodeLink exposes the fork as `codel` or `codelink` and adds local background job
 orchestration:
 
 ```shell
-codelink bg "review this repo in the background"
-codelink jobs
-codelink notifications
+codel bg "review this repo in the background"
+codel jobs
+codel notifications
 ```
 
 The old `manga` workflow has been merged into CodeLink's default context
 handling:
 
 ```shell
-codelink --yolo
+codel --yolo
 ```
 
 See [docs/context-pruner.md](docs/context-pruner.md) for the request-local

@@ -10,13 +10,13 @@ Do not inspect or copy leaked proprietary client source when building this fork.
 
 ## MVP
 
-- `codelink bg ...`: start a background Codex agent task.
-- `codelink watch-remote ...`: start a background remote tmux/log watcher.
-- `codelink jobs`: list running, completed, failed, and canceled jobs.
-- `codelink result <job_id>`: print latest job result and notification.
-- `codelink logs <job_id>`: stream or print captured log snapshots.
-- `codelink notifications`: print unread completion/failure notifications.
-- `codelink cancel <job_id>`: mark the job canceled.
+- `codel bg ...`: start a background Codex agent task.
+- `codel watch-remote ...`: start a background remote tmux/log watcher.
+- `codel jobs`: list running, completed, failed, and canceled jobs.
+- `codel result <job_id>`: print latest job result and notification.
+- `codel logs <job_id>`: stream or print captured log snapshots.
+- `codel notifications`: print unread completion/failure notifications.
+- `codel cancel <job_id>`: mark the job canceled.
 
 ## Job Model
 
@@ -44,16 +44,15 @@ should live under `~/.codelink/jobs/<job_id>/`.
 ### CLI Layer
 
 Add a CodeLink command surface first, without changing the core model loop.
-The public command is `codelink`; `codex codelink ...` may remain as a
-compatibility path while this fork is still close to upstream Codex.
+The public command is `codel`, with `codelink` kept as a long-form alias. `codex codelink ...` may remain as a compatibility path while this fork is still close to upstream Codex.
 
-- `codelink watch-remote`
-- `codelink bg`
-- `codelink jobs`
-- `codelink result`
-- `codelink logs`
-- `codelink notifications`
-- `codelink cancel`
+- `codel watch-remote`
+- `codel bg`
+- `codel jobs`
+- `codel result`
+- `codel logs`
+- `codel notifications`
+- `codel cancel`
 
 The first implementation can call the existing Codex binary in a child process.
 Once stable, it can move closer to internal Rust APIs.
@@ -88,7 +87,7 @@ The initial implementation uses the durable job store and spawns an existing
 Codex CLI as a detached child process:
 
 ```sh
-codelink bg \
+codel bg \
   --job-id audit-readme \
   --cwd /path/to/repo \
   --codex-arg=--model \
@@ -111,7 +110,7 @@ Artifacts are written under `~/.codelink/jobs/audit-readme/`:
 - `result.md`
 - `notification.md`
 
-`codelink cancel <job_id>` marks the job canceled; the worker observes that on
+`codel cancel <job_id>` marks the job canceled; the worker observes that on
 its next heartbeat and kills the child process.
 
 ### TUI Notification Bridge

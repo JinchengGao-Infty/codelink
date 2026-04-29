@@ -2,12 +2,12 @@
 
 CodeLink enables a request-local context pruning pass by default for long
 image-heavy or tool-heavy sessions. This migrated the useful behavior from the
-old `codex-manga` fork into the normal `codelink` command.
+old `codex-manga` fork into the normal `codel` command (`codelink` also works).
 
 Use CodeLink normally:
 
 ```bash
-codelink --yolo
+codel --yolo
 ```
 
 The default behavior is equivalent to these settings:
@@ -23,7 +23,7 @@ CODELINK_PRUNE_HEAVY_TOOL_CHARS=4096
 Disable it for a session with:
 
 ```bash
-CODELINK_CONTEXT_PRUNER=0 codelink
+CODELINK_CONTEXT_PRUNER=0 codel
 ```
 
 Behavior:
@@ -74,7 +74,7 @@ Payload-only checkpoint directives are still supported:
 
 Legacy `[manga-context-checkpoint ...]` directives and `CODEX_MANGA_*`
 environment variables are still accepted for old sessions and scripts, but
-CodeLink does not install or maintain a separate `manga` command. `--profile
+CodeLink does not install or maintain a separate `manga` command. `codelink` remains a long-form alias. `--profile
 manga` is accepted as a compatibility no-op.
 
 Keep this feature isolated from auth, billing, providers, and transport code so

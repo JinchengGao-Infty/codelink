@@ -62,7 +62,7 @@ bridge.
 First CLI shape:
 
 ```sh
-codelink watch-remote \
+codel watch-remote \
   --job-id phaseA200 \
   --host school \
   --tmux-session mmsae-phaseA200-dry \
@@ -73,13 +73,13 @@ codelink watch-remote \
 Then the controlling AI can poll:
 
 ```sh
-codelink jobs
-codelink result phaseA200
-codelink notifications
+codel jobs
+codel result phaseA200
+codel notifications
 ```
 
 The `codex codelink ...` subcommand may remain as a compatibility path during
-development, but the public CodeLink command should be `codelink`.
+development, but the public CodeLink command should be `codel`; `codelink` remains a long-form alias.
 
 ## Initial Job Contract
 
@@ -139,22 +139,22 @@ CodeLink must be able to launch a Codex task in the background and notify the
 controlling session after it finishes. The first CLI shape is:
 
 ```sh
-codelink bg --job-id audit-readme --cwd /path/to/repo "review README and write findings"
+codel bg --job-id audit-readme --cwd /path/to/repo "review README and write findings"
 ```
 
-The first pass may run `codelink exec <prompt>` as a child process and capture
+The first pass may run `codel exec <prompt>` as a child process and capture
 stdout/stderr under `~/.codelink/jobs/<job_id>/`. The job store and notification
 paths are shared with `watch-remote`:
 
 ```sh
-codelink jobs --all
-codelink result audit-readme
-codelink logs audit-readme
-codelink notifications
-codelink cancel audit-readme
+codel jobs --all
+codel result audit-readme
+codel logs audit-readme
+codel notifications
+codel cancel audit-readme
 ```
 
-Cancellation is cooperative: `codelink cancel <job_id>` marks the job canceled,
+Cancellation is cooperative: `codel cancel <job_id>` marks the job canceled,
 and the worker kills the child process on its next heartbeat.
 
 ## TUI Background Job Reminder Bridge
@@ -169,8 +169,8 @@ On startup and then periodically, the TUI should:
    jobs;
 3. drain unread completion notifications;
 4. read each job's `notification.md`;
-5. insert a compact completion message that points to `codelink result <job_id>`
-   and `codelink logs <job_id>`.
+5. insert a compact completion message that points to `codel result <job_id>`
+   and `codel logs <job_id>`.
 
 The reminder bridge must not create a CodeLink store just by launching the TUI.
 If `~/.codelink/jobs.sqlite` does not exist, it should stay silent.
@@ -181,15 +181,16 @@ The old `codex-manga` fork should not remain a separate long-lived fork. Its
 context-pruning behavior belongs in CodeLink and should be enabled by default:
 
 ```sh
-codelink --yolo
+codel --yolo
 ```
 
 CodeLink should not install or maintain a separate `manga` command. `--profile
 manga` may remain as a compatibility no-op, but the normal path is just
-`codelink`. The request-local context pruner uses `CODELINK_*` environment
-variables, accepts `CODELINK_CONTEXT_PRUNER=0` to disable it, and keeps accepting
-legacy `CODEX_MANGA_*` variables and `[manga-context-checkpoint ...]` directives
-for old sessions.
+`codel`. `codelink` remains available as a long-form alias. The request-local
+context pruner uses `CODELINK_*` environment variables, accepts
+`CODELINK_CONTEXT_PRUNER=0` to disable it, and keeps accepting legacy
+`CODEX_MANGA_*` variables and `[manga-context-checkpoint ...]` directives for
+old sessions.
 
 CodeLink also carries a clean-room DCP-style compression path: prompt-visible
 messages get `[codelink-message-id mNNNN]` markers, the model may call the
