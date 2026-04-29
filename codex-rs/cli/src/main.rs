@@ -50,11 +50,6 @@ use std::path::PathBuf;
 use supports_color::Stream;
 
 const CODELINK_MANGA_PROFILE: &str = "manga";
-const CODELINK_CONTEXT_PRUNER_ENV: &str = "CODELINK_CONTEXT_PRUNER";
-const CODELINK_CONTEXT_DIRECTIVES_ENV: &str = "CODELINK_CONTEXT_DIRECTIVES";
-const CODELINK_PRUNE_KEEP_RECENT_TURNS_ENV: &str = "CODELINK_PRUNE_KEEP_RECENT_TURNS";
-const CODELINK_PRUNE_SEGMENT_TURNS_ENV: &str = "CODELINK_PRUNE_SEGMENT_TURNS";
-const CODELINK_PRUNE_HEAVY_TOOL_CHARS_ENV: &str = "CODELINK_PRUNE_HEAVY_TOOL_CHARS";
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod app_cmd;
@@ -781,7 +776,6 @@ fn main() -> anyhow::Result<()> {
 }
 
 async fn cli_main(arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()> {
-    let invoked_as_manga = current_arg0_name().as_deref() == Some(CODELINK_MANGA_PROFILE);
     let MultitoolCli {
         config_overrides: mut root_config_overrides,
         feature_toggles,
@@ -789,9 +783,6 @@ async fn cli_main(arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()> {
         mut interactive,
         subcommand,
     } = parse_multitool_cli();
-    if invoked_as_manga {
-        enable_manga_profile_environment();
-    }
     apply_codelink_builtin_profile(&mut interactive.shared);
 
     // Fold --enable/--disable into config overrides so they flow to all subcommands.
@@ -1425,25 +1416,7 @@ fn current_arg0_name() -> Option<String> {
 
 fn apply_codelink_builtin_profile(shared: &mut SharedCliOptions) {
     if shared.config_profile.as_deref() == Some(CODELINK_MANGA_PROFILE) {
-        enable_manga_profile_environment();
         shared.config_profile = None;
-    }
-}
-
-fn enable_manga_profile_environment() {
-    set_env_if_absent(CODELINK_CONTEXT_PRUNER_ENV, "1");
-    set_env_if_absent(CODELINK_CONTEXT_DIRECTIVES_ENV, "1");
-    set_env_if_absent(CODELINK_PRUNE_KEEP_RECENT_TURNS_ENV, "1");
-    set_env_if_absent(CODELINK_PRUNE_SEGMENT_TURNS_ENV, "10");
-    set_env_if_absent(CODELINK_PRUNE_HEAVY_TOOL_CHARS_ENV, "4096");
-}
-
-fn set_env_if_absent(name: &str, value: &str) {
-    if std::env::var_os(name).is_none() {
-        // SAFETY: CodeLink applies built-in profile environment before starting
-        // async workers or model sessions, so there are no concurrent env
-        // readers/writers within this process yet.
-        unsafe { std::env::set_var(name, value) };
     }
 }
 

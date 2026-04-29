@@ -74,7 +74,7 @@ struct ToolCallMetadata {
 
 impl ContextPrunerConfig {
     fn from_env() -> Option<Self> {
-        if !env_truthy_any(&[ENABLE_ENV, LEGACY_ENABLE_ENV]) {
+        if !env_enabled_by_default(&[ENABLE_ENV, LEGACY_ENABLE_ENV]) {
             return None;
         }
 
@@ -89,7 +89,7 @@ impl ContextPrunerConfig {
                 .and_then(|value| value.parse::<usize>().ok())
                 .unwrap_or(DEFAULT_HEAVY_TOOL_CHARS),
             enable_directives: env_var_any(&[DIRECTIVES_ENV, LEGACY_DIRECTIVES_ENV])
-                .map(|value| env_value_truthy(&value))
+                .map(|value| !env_value_falsey(&value))
                 .unwrap_or(true),
         })
     }
@@ -836,22 +836,18 @@ fn is_protected_tool(name: &str) -> bool {
     )
 }
 
-fn env_truthy(name: &str) -> bool {
-    std::env::var(name)
-        .map(|value| env_value_truthy(&value))
-        .unwrap_or(false)
-}
-
-fn env_truthy_any(names: &[&str]) -> bool {
-    names.iter().any(|name| env_truthy(name))
+fn env_enabled_by_default(names: &[&str]) -> bool {
+    env_var_any(names)
+        .map(|value| !env_value_falsey(&value))
+        .unwrap_or(true)
 }
 
 fn env_var_any(names: &[&str]) -> Option<String> {
     names.iter().find_map(|name| std::env::var(name).ok())
 }
 
-fn env_value_truthy(value: &str) -> bool {
-    matches!(value, "1" | "true" | "TRUE" | "yes" | "on")
+fn env_value_falsey(value: &str) -> bool {
+    matches!(value, "0" | "false" | "FALSE" | "no" | "off")
 }
 
 fn strip_checkpoint_prefix(line: &str) -> Option<&str> {

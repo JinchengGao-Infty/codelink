@@ -82,10 +82,11 @@ codelink jobs
 codelink notifications
 ```
 
-The old `manga` workflow has been migrated into CodeLink as a built-in profile:
+The old `manga` workflow has been merged into CodeLink's default context
+handling:
 
 ```shell
-codelink --profile manga --yolo
+codelink --yolo
 ```
 
 See [docs/context-pruner.md](docs/context-pruner.md) for the request-local

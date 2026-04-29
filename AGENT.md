@@ -178,16 +178,18 @@ If `~/.codelink/jobs.sqlite` does not exist, it should stay silent.
 ## Manga Profile Migration
 
 The old `codex-manga` fork should not remain a separate long-lived fork. Its
-context-pruning behavior belongs in CodeLink as the built-in `manga` profile:
+context-pruning behavior belongs in CodeLink and should be enabled by default:
 
 ```sh
-codelink --profile manga --yolo
+codelink --yolo
 ```
 
-CodeLink should not install or maintain a separate `manga` command. The profile
-enables the request-local context pruner with `CODELINK_*` environment variables
-and keeps accepting legacy `CODEX_MANGA_*` variables and
-`[manga-context-checkpoint ...]` directives for old sessions.
+CodeLink should not install or maintain a separate `manga` command. `--profile
+manga` may remain as a compatibility no-op, but the normal path is just
+`codelink`. The request-local context pruner uses `CODELINK_*` environment
+variables, accepts `CODELINK_CONTEXT_PRUNER=0` to disable it, and keeps accepting
+legacy `CODEX_MANGA_*` variables and `[manga-context-checkpoint ...]` directives
+for old sessions.
 
 The pruner must stay request-local: it may prune the prompt sent to the model,
 but must not rewrite stored rollout history. Keep it isolated from auth,

@@ -1,16 +1,16 @@
 # CodeLink Context Pruner
 
-CodeLink includes an opt-in request-local context pruning pass for long
-image-heavy or tool-heavy sessions. The first built-in preset is the `manga`
-profile, migrated from the old `codex-manga` fork.
+CodeLink enables a request-local context pruning pass by default for long
+image-heavy or tool-heavy sessions. This migrated the useful behavior from the
+old `codex-manga` fork into the normal `codelink` command.
 
-Enable it with:
+Use CodeLink normally:
 
 ```bash
-codelink --profile manga
+codelink --yolo
 ```
 
-The profile sets these environment defaults unless the user already set them:
+The default behavior is equivalent to these settings:
 
 ```bash
 CODELINK_CONTEXT_PRUNER=1
@@ -18,6 +18,12 @@ CODELINK_CONTEXT_DIRECTIVES=1
 CODELINK_PRUNE_KEEP_RECENT_TURNS=1
 CODELINK_PRUNE_SEGMENT_TURNS=10
 CODELINK_PRUNE_HEAVY_TOOL_CHARS=4096
+```
+
+Disable it for a session with:
+
+```bash
+CODELINK_CONTEXT_PRUNER=0 codelink
 ```
 
 Behavior:
@@ -47,7 +53,8 @@ after a stable checkpoint:
 
 Legacy `[manga-context-checkpoint ...]` directives and `CODEX_MANGA_*`
 environment variables are still accepted for old sessions and scripts, but
-CodeLink does not install or maintain a separate `manga` command.
+CodeLink does not install or maintain a separate `manga` command. `--profile
+manga` is accepted as a compatibility no-op.
 
 Keep this feature isolated from auth, billing, providers, and transport code so
 upstream OpenAI Codex changes remain easy to merge.
