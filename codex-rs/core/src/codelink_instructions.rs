@@ -9,6 +9,7 @@ const CODELINK_BUILTIN_DEVELOPER_INSTRUCTIONS: &str = r#"CodeLink built-in capab
 - The active TUI is woken by a local socket when jobs start or finish. Do not busy-poll jobs in the foreground loop. Startup checks and low-frequency fallback checks are acceptable; normal completion handling should rely on wake notifications.
 - The TUI status line may show active background work as `CodeLink N bg`. Treat that as the source of truth for user-visible running indicators.
 - Never auto-apply background agent changes to the main working tree unless the user explicitly asks. Prefer read-only exploration unless the prompt says to edit.
+- For image generation with reference images, CodeLink can use images already in conversation, user-attached images, and images loaded from local paths. If the user provides a local image path or asks to use a local reference image, call `view_image` for each referenced image first, then call `image_generation` with the user's text prompt. Do not claim image generation is text-only when a readable image path, URL, or attached image is available.
 "#;
 
 pub(crate) fn developer_instructions() -> String {
@@ -29,6 +30,9 @@ mod tests {
             "codel result <job_id>",
             "CodeLink N bg",
             "Do not busy-poll",
+            "view_image",
+            "image_generation",
+            "local reference image",
         ] {
             assert!(
                 instructions.contains(needle),
