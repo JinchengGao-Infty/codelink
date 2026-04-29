@@ -87,10 +87,11 @@ impl App {
         let announced_active_jobs = Arc::new(Mutex::new(HashSet::new()));
         start_codelink_wake_listener(app_event_tx.clone(), announced_active_jobs.clone());
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(60));
-            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            if !poll_codelink_jobs_once(&app_event_tx, &announced_active_jobs).await {
+                return;
+            }
             loop {
-                interval.tick().await;
+                tokio::time::sleep(Duration::from_secs(15 * 60)).await;
                 if !poll_codelink_jobs_once(&app_event_tx, &announced_active_jobs).await {
                     break;
                 }

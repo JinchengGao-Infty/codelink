@@ -15,6 +15,7 @@ mod realtime_conversation;
 mod realtime_prompt;
 pub(crate) mod session;
 pub use session::SteerInputError;
+mod codelink_instructions;
 mod codex_thread;
 mod compact_remote;
 pub use codex_thread::CodexThread;

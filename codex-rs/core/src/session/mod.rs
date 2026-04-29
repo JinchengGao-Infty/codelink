@@ -2576,6 +2576,7 @@ impl Session {
         {
             developer_sections.push(context_pruner_instructions);
         }
+        developer_sections.push(crate::codelink_instructions::developer_instructions());
         if let Some(realtime_update) = crate::context_manager::updates::build_initial_realtime_item(
             reference_context_item.as_ref(),
             previous_turn_settings.as_ref(),

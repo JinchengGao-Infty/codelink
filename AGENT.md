@@ -90,6 +90,11 @@ codel timer --after 2h "Check the remote run and report status"
 They use the same job store, status line, wake socket, notification, and main AI
 wake turn as `bg` and `watch-remote`.
 
+These capabilities are also injected as CodeLink built-in developer
+instructions from `codex-rs/core/src/codelink_instructions.rs`. Keep that file
+updated when adding user-facing CodeLink commands or wake/status behavior, so
+future sessions do not need to rediscover the features from project docs.
+
 ## Initial Job Contract
 
 Every background job should record:
@@ -171,7 +176,7 @@ and the worker kills the child process on its next heartbeat.
 The interactive CodeLink TUI must make background work visible without requiring
 the user to remember polling commands manually.
 
-On startup and then periodically, the TUI should:
+On startup, and when woken by the CodeLink socket, the TUI should:
 
 1. read active CodeLink jobs from `~/.codelink/jobs.sqlite`;
 2. insert a compact history reminder for newly observed `running` or `stalled`
@@ -184,10 +189,12 @@ On startup and then periodically, the TUI should:
 The reminder bridge must not create a CodeLink store just by launching the TUI.
 If `~/.codelink/jobs.sqlite` does not exist, it should stay silent.
 
-The periodic check is only a fallback. The normal path should be active wake:
-the TUI binds a local wake socket, and background workers send a wake packet
-when a job starts or writes a terminal notification, so a 2-hour monitor does
-not require the controlling session to poll constantly.
+Polling is only a low-frequency recovery fallback, not the normal control path.
+The TUI binds a local wake socket, and background workers send a wake packet
+when a job starts or writes a terminal notification, so a 2-hour monitor must
+not require the controlling session to poll constantly. Keep fallback polling
+slow enough to avoid idle churn; current target is startup scan plus about
+15-minute fallback checks.
 
 ## Manga Profile Migration
 
