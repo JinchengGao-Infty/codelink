@@ -2571,6 +2571,11 @@ impl Session {
         {
             developer_sections.push(collab_instructions.render());
         }
+        if let Some(context_pruner_instructions) =
+            crate::context_manager::context_pruner::developer_instructions_from_env()
+        {
+            developer_sections.push(context_pruner_instructions);
+        }
         if let Some(realtime_update) = crate::context_manager::updates::build_initial_realtime_item(
             reference_context_item.as_ref(),
             previous_turn_settings.as_ref(),

@@ -174,3 +174,21 @@ On startup and then periodically, the TUI should:
 
 The reminder bridge must not create a CodeLink store just by launching the TUI.
 If `~/.codelink/jobs.sqlite` does not exist, it should stay silent.
+
+## Manga Profile Migration
+
+The old `codex-manga` fork should not remain a separate long-lived fork. Its
+context-pruning behavior belongs in CodeLink as the built-in `manga` profile:
+
+```sh
+codelink --profile manga --yolo
+```
+
+CodeLink should not install or maintain a separate `manga` command. The profile
+enables the request-local context pruner with `CODELINK_*` environment variables
+and keeps accepting legacy `CODEX_MANGA_*` variables and
+`[manga-context-checkpoint ...]` directives for old sessions.
+
+The pruner must stay request-local: it may prune the prompt sent to the model,
+but must not rewrite stored rollout history. Keep it isolated from auth,
+billing, providers, and transport code.

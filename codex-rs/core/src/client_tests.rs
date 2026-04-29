@@ -9,6 +9,7 @@ use super::X_CODEX_WINDOW_ID_HEADER;
 use super::X_OPENAI_SUBAGENT_HEADER;
 use codex_api::ApiError;
 use codex_api::ResponseEvent;
+use codex_api::TransportError;
 use codex_app_server_protocol::AuthMode;
 use codex_model_provider::BearerAuthProvider;
 use codex_model_provider_info::WireApi;
@@ -98,6 +99,38 @@ fn test_session_telemetry() -> SessionTelemetry {
         "test-terminal".to_string(),
         SessionSource::Cli,
     )
+}
+
+#[test]
+fn broken_pipe_websocket_send_error_is_recoverable() {
+    let err = ApiError::Stream(
+        "failed to send websocket request: IO error: Broken pipe (os error 32)".to_string(),
+    );
+
+    assert!(super::is_recoverable_websocket_transport_error(&err));
+}
+
+#[test]
+fn closed_websocket_network_error_is_recoverable() {
+    let err = ApiError::Transport(TransportError::Network(
+        "websocket closed without sending close frame".to_string(),
+    ));
+
+    assert!(super::is_recoverable_websocket_transport_error(&err));
+}
+
+#[test]
+fn websocket_closed_by_server_before_completed_is_recoverable() {
+    let err = ApiError::Stream("websocket closed by server before response.completed".to_string());
+
+    assert!(super::is_recoverable_websocket_transport_error(&err));
+}
+
+#[test]
+fn non_websocket_stream_error_is_not_recoverable() {
+    let err = ApiError::Stream("stream closed before response.completed".to_string());
+
+    assert!(!super::is_recoverable_websocket_transport_error(&err));
 }
 
 fn started_inference_attempt(temp: &TempDir) -> anyhow::Result<InferenceTraceAttempt> {

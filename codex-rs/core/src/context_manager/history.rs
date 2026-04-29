@@ -118,6 +118,7 @@ impl ContextManager {
     /// outputs.
     pub(crate) fn for_prompt(mut self, input_modalities: &[InputModality]) -> Vec<ResponseItem> {
         self.normalize_history(input_modalities);
+        super::context_pruner::prune_items_for_prompt_from_env(&mut self.items);
         self.items
     }
 

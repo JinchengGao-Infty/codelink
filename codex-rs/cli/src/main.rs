@@ -43,10 +43,18 @@ use codex_tui::ExitReason;
 use codex_tui::UpdateAction;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_cli::CliConfigOverrides;
+use codex_utils_cli::SharedCliOptions;
 use owo_colors::OwoColorize;
 use std::io::IsTerminal;
 use std::path::PathBuf;
 use supports_color::Stream;
+
+const CODELINK_MANGA_PROFILE: &str = "manga";
+const CODELINK_CONTEXT_PRUNER_ENV: &str = "CODELINK_CONTEXT_PRUNER";
+const CODELINK_CONTEXT_DIRECTIVES_ENV: &str = "CODELINK_CONTEXT_DIRECTIVES";
+const CODELINK_PRUNE_KEEP_RECENT_TURNS_ENV: &str = "CODELINK_PRUNE_KEEP_RECENT_TURNS";
+const CODELINK_PRUNE_SEGMENT_TURNS_ENV: &str = "CODELINK_PRUNE_SEGMENT_TURNS";
+const CODELINK_PRUNE_HEAVY_TOOL_CHARS_ENV: &str = "CODELINK_PRUNE_HEAVY_TOOL_CHARS";
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod app_cmd;
@@ -773,6 +781,7 @@ fn main() -> anyhow::Result<()> {
 }
 
 async fn cli_main(arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()> {
+    let invoked_as_manga = current_arg0_name().as_deref() == Some(CODELINK_MANGA_PROFILE);
     let MultitoolCli {
         config_overrides: mut root_config_overrides,
         feature_toggles,
@@ -780,6 +789,10 @@ async fn cli_main(arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()> {
         mut interactive,
         subcommand,
     } = parse_multitool_cli();
+    if invoked_as_manga {
+        enable_manga_profile_environment();
+    }
+    apply_codelink_builtin_profile(&mut interactive.shared);
 
     // Fold --enable/--disable into config overrides so they flow to all subcommands.
     let toggle_overrides = feature_toggles.to_overrides()?;
@@ -811,6 +824,7 @@ async fn cli_main(arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()> {
             exec_cli
                 .shared
                 .inherit_exec_root_options(&interactive.shared);
+            apply_codelink_builtin_profile(&mut exec_cli.shared);
             prepend_config_flags(
                 &mut exec_cli.config_overrides,
                 root_config_overrides.clone(),
@@ -1388,15 +1402,7 @@ async fn cli_main(arg0_paths: Arg0DispatchPaths) -> anyhow::Result<()> {
 }
 
 fn parse_multitool_cli() -> MultitoolCli {
-    let bin_name = std::env::args_os()
-        .next()
-        .and_then(|arg0| {
-            std::path::PathBuf::from(arg0)
-                .file_name()
-                .map(|name| name.to_string_lossy().into_owned())
-        })
-        .filter(|name| !name.trim().is_empty())
-        .unwrap_or_else(|| "codex".to_string());
+    let bin_name = current_arg0_name().unwrap_or_else(|| "codex".to_string());
     let usage =
         format!("{bin_name} [OPTIONS] [PROMPT]\n       {bin_name} [OPTIONS] <COMMAND> [ARGS]");
     let matches = MultitoolCli::command()
@@ -1404,6 +1410,41 @@ fn parse_multitool_cli() -> MultitoolCli {
         .override_usage(usage)
         .get_matches();
     MultitoolCli::from_arg_matches(&matches).unwrap_or_else(|err| err.exit())
+}
+
+fn current_arg0_name() -> Option<String> {
+    std::env::args_os()
+        .next()
+        .and_then(|arg0| {
+            std::path::PathBuf::from(arg0)
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+        })
+        .filter(|name| !name.trim().is_empty())
+}
+
+fn apply_codelink_builtin_profile(shared: &mut SharedCliOptions) {
+    if shared.config_profile.as_deref() == Some(CODELINK_MANGA_PROFILE) {
+        enable_manga_profile_environment();
+        shared.config_profile = None;
+    }
+}
+
+fn enable_manga_profile_environment() {
+    set_env_if_absent(CODELINK_CONTEXT_PRUNER_ENV, "1");
+    set_env_if_absent(CODELINK_CONTEXT_DIRECTIVES_ENV, "1");
+    set_env_if_absent(CODELINK_PRUNE_KEEP_RECENT_TURNS_ENV, "1");
+    set_env_if_absent(CODELINK_PRUNE_SEGMENT_TURNS_ENV, "10");
+    set_env_if_absent(CODELINK_PRUNE_HEAVY_TOOL_CHARS_ENV, "4096");
+}
+
+fn set_env_if_absent(name: &str, value: &str) {
+    if std::env::var_os(name).is_none() {
+        // SAFETY: CodeLink applies built-in profile environment before starting
+        // async workers or model sessions, so there are no concurrent env
+        // readers/writers within this process yet.
+        unsafe { std::env::set_var(name, value) };
+    }
 }
 
 async fn run_exec_server_command(

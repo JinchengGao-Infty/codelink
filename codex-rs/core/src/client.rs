@@ -266,6 +266,30 @@ enum WebsocketStreamOutcome {
     FallbackToHttp,
 }
 
+fn is_recoverable_websocket_transport_error(err: &ApiError) -> bool {
+    match err {
+        ApiError::Transport(TransportError::Network(message)) | ApiError::Stream(message) => {
+            is_recoverable_websocket_transport_message(message)
+        }
+        _ => false,
+    }
+}
+
+pub(crate) fn is_recoverable_websocket_transport_message(message: &str) -> bool {
+    let message = message.to_ascii_lowercase();
+    let is_websocket_send_failure =
+        message.contains("failed to send websocket request") || message.contains("websocket");
+    let is_closed_connection = message.contains("broken pipe")
+        || message.contains("os error 32")
+        || message.contains("connection reset")
+        || message.contains("connection closed")
+        || message.contains("closed by server")
+        || message.contains("closed without sending close frame")
+        || message.contains("already closed");
+
+    is_websocket_send_failure && is_closed_connection
+}
+
 /// Result of opening a WebRTC Realtime call.
 ///
 /// The SDP answer goes back to the client. The call id and auth headers stay on the server so the
@@ -1351,6 +1375,14 @@ impl ModelClientSession {
                     );
                     continue;
                 }
+                Err(err) if is_recoverable_websocket_transport_error(&err) => {
+                    warn!(
+                        error = %err,
+                        "recoverable websocket connection failure; falling back to HTTP"
+                    );
+                    self.reset_websocket_session();
+                    return Ok(WebsocketStreamOutcome::FallbackToHttp);
+                }
                 Err(err) => return Err(map_api_error(err)),
             }
 
@@ -1370,14 +1402,27 @@ impl ModelClientSession {
                         "websocket connection is unavailable".to_string(),
                     ))
                 })?;
-            let stream_result = websocket_connection
+            let stream_result = match websocket_connection
                 .stream_request(ws_request, self.websocket_session.connection_reused())
                 .await
-                .map_err(|err| {
+            {
+                Ok(stream_result) => stream_result,
+                Err(err) if is_recoverable_websocket_transport_error(&err) => {
                     let err = map_api_error(err);
                     inference_trace_attempt.record_failed(&err, /*output_items*/ &[]);
-                    err
-                })?;
+                    warn!(
+                        error = %err,
+                        "recoverable websocket request failure; falling back to HTTP"
+                    );
+                    self.reset_websocket_session();
+                    return Ok(WebsocketStreamOutcome::FallbackToHttp);
+                }
+                Err(err) => {
+                    let err = map_api_error(err);
+                    inference_trace_attempt.record_failed(&err, /*output_items*/ &[]);
+                    return Err(err);
+                }
+            };
             let (stream, last_request_rx) = map_response_stream(
                 stream_result,
                 session_telemetry.clone(),

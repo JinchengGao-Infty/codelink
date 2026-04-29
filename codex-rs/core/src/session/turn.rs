@@ -7,6 +7,7 @@ use crate::SkillInjections;
 use crate::SkillLoadOutcome;
 use crate::build_skill_injections;
 use crate::client::ModelClientSession;
+use crate::client::is_recoverable_websocket_transport_message;
 use crate::client_common::Prompt;
 use crate::client_common::ResponseEvent;
 use crate::collect_env_var_dependencies;
@@ -1048,6 +1049,26 @@ async fn run_sampling_request(
             return Err(err);
         }
 
+        if should_immediately_fallback_from_websocket_stream_error(&err)
+            && provider_base_url_supports_http_fallback(
+                turn_context.provider.info().base_url.as_deref(),
+            )
+            && client_session.try_switch_fallback_transport(
+                &turn_context.session_telemetry,
+                &turn_context.model_info,
+            )
+        {
+            sess.send_event(
+                &turn_context,
+                EventMsg::Warning(WarningEvent {
+                    message: format!("Falling back from WebSockets to HTTPS transport. {err:#}"),
+                }),
+            )
+            .await;
+            retries = 0;
+            continue;
+        }
+
         // Use the configured provider-specific stream retry budget.
         let max_retries = turn_context.provider.info().stream_max_retries();
         if retries >= max_retries
@@ -1099,6 +1120,21 @@ async fn run_sampling_request(
             return Err(err);
         }
     }
+}
+
+fn should_immediately_fallback_from_websocket_stream_error(err: &CodexErr) -> bool {
+    matches!(
+        err,
+        CodexErr::Stream(message, _) if is_recoverable_websocket_transport_message(message)
+    )
+}
+
+fn provider_base_url_supports_http_fallback(base_url: Option<&str>) -> bool {
+    let Some(base_url) = base_url else {
+        return true;
+    };
+    let base_url = base_url.to_ascii_lowercase();
+    !base_url.starts_with("ws://") && !base_url.starts_with("wss://")
 }
 
 #[expect(
@@ -2232,4 +2268,44 @@ pub(crate) fn get_last_assistant_message_from_turn(responses: &[ResponseItem]) -
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use codex_protocol::error::CodexErr;
+
+    #[test]
+    fn websocket_closed_by_server_stream_error_triggers_immediate_fallback() {
+        let err = CodexErr::Stream(
+            "websocket closed by server before response.completed".to_string(),
+            None,
+        );
+
+        assert!(super::should_immediately_fallback_from_websocket_stream_error(&err));
+    }
+
+    #[test]
+    fn plain_stream_close_does_not_trigger_websocket_fallback() {
+        let err = CodexErr::Stream("stream closed before response.completed".to_string(), None);
+
+        assert!(!super::should_immediately_fallback_from_websocket_stream_error(&err));
+    }
+
+    #[test]
+    fn ws_only_base_url_does_not_support_http_fallback() {
+        assert!(!super::provider_base_url_supports_http_fallback(Some(
+            "ws://127.0.0.1:1234/v1",
+        )));
+        assert!(!super::provider_base_url_supports_http_fallback(Some(
+            "WSS://example.test/v1",
+        )));
+    }
+
+    #[test]
+    fn http_base_url_supports_http_fallback() {
+        assert!(super::provider_base_url_supports_http_fallback(Some(
+            "https://api.openai.com/v1",
+        )));
+        assert!(super::provider_base_url_supports_http_fallback(None));
+    }
 }
