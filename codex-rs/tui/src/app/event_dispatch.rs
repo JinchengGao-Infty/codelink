@@ -535,6 +535,9 @@ impl App {
                         .add_plain_history_lines(codelink_active_job_lines(&job));
                 }
             }
+            AppEvent::CodeLinkActiveJobsStatus { count } => {
+                self.chat_widget.set_codelink_active_job_count(count);
+            }
             AppEvent::CodeLinkNotificationsLoaded { notifications } => {
                 for notification in &notifications {
                     self.chat_widget

@@ -288,6 +288,7 @@ pub(super) async fn make_chatwidget_manual(
         saw_plan_update_this_turn: false,
         saw_plan_item_this_turn: false,
         last_plan_progress: None,
+        codelink_active_job_count: 0,
         plan_delta_buffer: String::new(),
         plan_item_active: false,
         last_separator_elapsed_secs: None,

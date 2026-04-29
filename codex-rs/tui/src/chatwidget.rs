@@ -1003,6 +1003,8 @@ pub(crate) struct ChatWidget {
     saw_plan_item_this_turn: bool,
     // Latest `update_plan` checklist task counts for terminal-title rendering.
     last_plan_progress: Option<(usize, usize)>,
+    // Number of currently active CodeLink background jobs shown in the status line.
+    codelink_active_job_count: usize,
     // Incremental buffer for streamed plan content.
     plan_delta_buffer: String,
     // True while a plan item is streaming.
@@ -5598,6 +5600,7 @@ impl ChatWidget {
             saw_plan_update_this_turn: false,
             saw_plan_item_this_turn: false,
             last_plan_progress: None,
+            codelink_active_job_count: 0,
             plan_delta_buffer: String::new(),
             plan_item_active: false,
             last_separator_elapsed_secs: None,
@@ -11570,6 +11573,14 @@ impl ChatWidget {
             mention_bindings: Vec::new(),
         };
         self.queue_user_message(user_message);
+    }
+
+    pub(crate) fn set_codelink_active_job_count(&mut self, count: usize) {
+        if self.codelink_active_job_count != count {
+            self.codelink_active_job_count = count;
+            self.refresh_status_line();
+            self.request_redraw();
+        }
     }
 
     /// True when the UI is in the regular composer state with no running task,

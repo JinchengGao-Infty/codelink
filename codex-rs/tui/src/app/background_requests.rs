@@ -415,6 +415,15 @@ async fn poll_codelink_jobs_once(
 ) -> bool {
     match codex_codelink::active_jobs().await {
         Ok(jobs) => {
+            let active_count = jobs.len();
+            if app_event_tx
+                .send(AppEvent::CodeLinkActiveJobsStatus {
+                    count: active_count,
+                })
+                .is_err()
+            {
+                return false;
+            }
             let new_jobs = {
                 let mut announced = announced_active_jobs
                     .lock()

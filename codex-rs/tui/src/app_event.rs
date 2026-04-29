@@ -397,6 +397,11 @@ pub(crate) enum AppEvent {
         jobs: Vec<CodeLinkJobSummary>,
     },
 
+    /// Current number of active CodeLink background jobs.
+    CodeLinkActiveJobsStatus {
+        count: usize,
+    },
+
     /// Unread CodeLink background job notifications discovered by the TUI poller.
     CodeLinkNotificationsLoaded {
         notifications: Vec<CodeLinkNotification>,

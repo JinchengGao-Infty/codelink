@@ -156,6 +156,14 @@ impl ChatWidget {
                 parts.push(value);
             }
         }
+        if self.codelink_active_job_count > 0 {
+            let label = if self.codelink_active_job_count == 1 {
+                "CodeLink 1 bg".to_string()
+            } else {
+                format!("CodeLink {} bg", self.codelink_active_job_count)
+            };
+            parts.push(label);
+        }
 
         let line = if parts.is_empty() {
             None
