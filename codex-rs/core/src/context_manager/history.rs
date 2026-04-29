@@ -119,6 +119,11 @@ impl ContextManager {
     pub(crate) fn for_prompt(mut self, input_modalities: &[InputModality]) -> Vec<ResponseItem> {
         self.normalize_history(input_modalities);
         super::context_pruner::prune_items_for_prompt_from_env(&mut self.items);
+        self.items = self
+            .items
+            .into_iter()
+            .map(image_generation_call_to_prompt_summary)
+            .collect();
         self.items
     }
 
@@ -469,6 +474,37 @@ fn truncate_function_output_payload(
     FunctionCallOutputPayload {
         body,
         success: output.success,
+    }
+}
+
+fn image_generation_call_to_prompt_summary(item: ResponseItem) -> ResponseItem {
+    let ResponseItem::ImageGenerationCall {
+        status,
+        revised_prompt,
+        ..
+    } = item
+    else {
+        return item;
+    };
+
+    let mut text = format!("[Generated image omitted from API replay]\nstatus: {status}");
+    if let Some(revised_prompt) = revised_prompt
+        && !revised_prompt.trim().is_empty()
+    {
+        text.push_str("\nrevised_prompt: ");
+        text.push_str(&revised_prompt);
+    }
+    text.push_str(
+        "\nThe original image_generation_call item and image payload were not replayed because \
+         Responses image generation item ids are server-scoped. Use the saved image path from \
+         the visible transcript if the generated image must be inspected again.",
+    );
+
+    ResponseItem::Message {
+        id: None,
+        role: "assistant".to_string(),
+        content: vec![ContentItem::OutputText { text }],
+        phase: None,
     }
 }
 

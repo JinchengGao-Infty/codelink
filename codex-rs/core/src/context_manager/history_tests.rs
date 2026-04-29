@@ -514,8 +514,16 @@ fn for_prompt_strips_images_when_model_does_not_support_images() {
 }
 
 #[test]
-fn for_prompt_preserves_image_generation_calls_when_images_are_supported() {
+fn for_prompt_summarizes_image_generation_calls_when_images_are_supported() {
     let history = create_history_with_items(vec![
+        ResponseItem::Message {
+            id: None,
+            role: "user".to_string(),
+            content: vec![ContentItem::InputText {
+                text: "generate a lobster".to_string(),
+            }],
+            phase: None,
+        },
         ResponseItem::ImageGenerationCall {
             id: "ig_123".to_string(),
             status: "generating".to_string(),
@@ -532,29 +540,31 @@ fn for_prompt_preserves_image_generation_calls_when_images_are_supported() {
         },
     ]);
 
-    assert_eq!(
-        history.for_prompt(&default_input_modalities()),
-        vec![
-            ResponseItem::ImageGenerationCall {
-                id: "ig_123".to_string(),
-                status: "generating".to_string(),
-                revised_prompt: Some("lobster".to_string()),
-                result: "Zm9v".to_string(),
-            },
-            ResponseItem::Message {
-                id: None,
-                role: "user".to_string(),
-                content: vec![ContentItem::InputText {
-                    text: "hi".to_string(),
-                }],
-                phase: None,
-            }
-        ]
+    let prompt = history.for_prompt(&default_input_modalities());
+    assert_eq!(prompt.len(), 3);
+    assert!(
+        !prompt
+            .iter()
+            .any(|item| matches!(item, ResponseItem::ImageGenerationCall { .. }))
     );
+    assert!(matches!(&prompt[0], ResponseItem::Message { role, .. } if role == "user"));
+    assert!(matches!(&prompt[2], ResponseItem::Message { role, .. } if role == "user"));
+    let ResponseItem::Message { role, content, .. } = &prompt[1] else {
+        panic!("expected image generation ledger message");
+    };
+    assert_eq!(role, "assistant");
+    let ContentItem::OutputText { text } = &content[0] else {
+        panic!("expected image generation ledger text");
+    };
+    assert!(text.contains("[Generated image omitted from API replay]"));
+    assert!(text.contains("status: generating"));
+    assert!(text.contains("revised_prompt: lobster"));
+    assert!(!text.contains("Zm9v"));
+    assert!(!text.contains("ig_123"));
 }
 
 #[test]
-fn for_prompt_clears_image_generation_result_when_images_are_unsupported() {
+fn for_prompt_summarizes_image_generation_calls_when_images_are_unsupported() {
     let history = create_history_with_items(vec![
         ResponseItem::Message {
             id: None,
@@ -572,25 +582,24 @@ fn for_prompt_clears_image_generation_result_when_images_are_unsupported() {
         },
     ]);
 
-    assert_eq!(
-        history.for_prompt(&[InputModality::Text]),
-        vec![
-            ResponseItem::Message {
-                id: None,
-                role: "user".to_string(),
-                content: vec![ContentItem::InputText {
-                    text: "generate a lobster".to_string(),
-                }],
-                phase: None,
-            },
-            ResponseItem::ImageGenerationCall {
-                id: "ig_123".to_string(),
-                status: "completed".to_string(),
-                revised_prompt: Some("lobster".to_string()),
-                result: String::new(),
-            },
-        ]
+    let prompt = history.for_prompt(&[InputModality::Text]);
+    assert_eq!(prompt.len(), 2);
+    assert!(
+        !prompt
+            .iter()
+            .any(|item| matches!(item, ResponseItem::ImageGenerationCall { .. }))
     );
+    let ResponseItem::Message { role, content, .. } = &prompt[1] else {
+        panic!("expected image generation ledger message");
+    };
+    assert_eq!(role, "assistant");
+    let ContentItem::OutputText { text } = &content[0] else {
+        panic!("expected image generation ledger text");
+    };
+    assert!(text.contains("status: completed"));
+    assert!(text.contains("revised_prompt: lobster"));
+    assert!(!text.contains("Zm9v"));
+    assert!(!text.contains("ig_123"));
 }
 
 #[test]
