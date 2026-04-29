@@ -23,7 +23,7 @@ impl ContextualUserFragment for ImageGenerationInstructions {
 
     fn body(&self) -> String {
         format!(
-            "Generated images are saved to {} as {} by default.\nIf you need to use a generated image at another path, copy it and leave the original in place unless the user explicitly asks you to delete it.\nWhen editing or generating from reference images, use images already in conversation. If the user provides a local image path, call `view_image` for each referenced image before calling `image_generation` with the user's text prompt.",
+            "Generated images are saved to {} as {} by default.\nIf you need to use a generated image at another path, copy it and leave the original in place unless the user explicitly asks you to delete it.\nWhen editing or generating from reference images, use images already visible in the current conversation. The `image_generation` tool has no path, base64, or image argument; reference images are supplied by prompt context. If the user provides a local image path, call `view_image` for each referenced image immediately before `image_generation`, then call `image_generation` with only the user's text prompt and edit instructions. For cutout, extraction, outfit, identity, style-transfer, or other reference-image work, phrase the prompt as an edit of the attached/local image, such as `edit the attached image to isolate only the referenced subject`, not as a fresh text-only generation. Do not claim image generation is text-only when a readable path, URL, or attached image is available.",
             self.image_output_dir, self.image_output_path
         )
     }
@@ -41,8 +41,11 @@ mod tests {
             "reference images",
             "local image path",
             "view_image",
+            "immediately before",
             "image_generation",
+            "has no path, base64, or image argument",
             "text prompt",
+            "edit the attached image",
         ] {
             assert!(
                 instructions.contains(needle),

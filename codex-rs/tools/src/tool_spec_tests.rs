@@ -1,4 +1,6 @@
 use super::ConfiguredToolSpec;
+use super::ImageGenerationAction;
+use super::ImageGenerationInputFidelity;
 use super::ResponsesApiNamespace;
 use super::ResponsesApiWebSearchFilters;
 use super::ResponsesApiWebSearchUserLocation;
@@ -62,6 +64,8 @@ fn tool_spec_name_covers_all_variants() {
     assert_eq!(
         ToolSpec::ImageGeneration {
             output_format: "png".to_string(),
+            action: ImageGenerationAction::Auto,
+            input_fidelity: ImageGenerationInputFidelity::High,
         }
         .name(),
         "image_generation"

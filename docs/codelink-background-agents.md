@@ -97,10 +97,10 @@ codel bg \
   "review README and write findings"
 ```
 
-This runs:
+By default this runs the same CodeLink executable that registered the job:
 
 ```sh
-codex --model gpt-5.5 exec "review README and write findings"
+codel --model gpt-5.5 exec "review README and write findings"
 ```
 
 Artifacts are written under `~/.codelink/jobs/audit-readme/`:

@@ -33,7 +33,11 @@ pub enum ToolSpec {
     #[serde(rename = "local_shell")]
     LocalShell {},
     #[serde(rename = "image_generation")]
-    ImageGeneration { output_format: String },
+    ImageGeneration {
+        output_format: String,
+        action: ImageGenerationAction,
+        input_fidelity: ImageGenerationInputFidelity,
+    },
     // TODO: Understand why we get an error on web_search although the API docs
     // say it's supported.
     // https://platform.openai.com/docs/guides/tools-web-search?api-mode=responses#:~:text=%7B%20type%3A%20%22web_search%22%20%7D%2C
@@ -55,6 +59,18 @@ pub enum ToolSpec {
     },
     #[serde(rename = "custom")]
     Freeform(FreeformTool),
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ImageGenerationAction {
+    Auto,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ImageGenerationInputFidelity {
+    High,
 }
 
 impl ToolSpec {
@@ -87,6 +103,8 @@ pub fn create_local_shell_tool() -> ToolSpec {
 pub fn create_image_generation_tool(output_format: &str) -> ToolSpec {
     ToolSpec::ImageGeneration {
         output_format: output_format.to_string(),
+        action: ImageGenerationAction::Auto,
+        input_fidelity: ImageGenerationInputFidelity::High,
     }
 }
 

@@ -160,6 +160,7 @@ impl ToolHandler for ViewImageHandler {
             .await;
 
         Ok(ViewImageOutput {
+            source_path: abs_path.display().to_string(),
             image_url,
             image_detail,
         })
@@ -167,13 +168,14 @@ impl ToolHandler for ViewImageHandler {
 }
 
 pub struct ViewImageOutput {
+    source_path: String,
     image_url: String,
     image_detail: Option<ImageDetail>,
 }
 
 impl ToolOutput for ViewImageOutput {
     fn log_preview(&self) -> String {
-        self.image_url.clone()
+        format!("image loaded from {}", self.source_path)
     }
 
     fn success_for_logging(&self) -> bool {
@@ -181,11 +183,15 @@ impl ToolOutput for ViewImageOutput {
     }
 
     fn to_response_item(&self, call_id: &str, _payload: &ToolPayload) -> ResponseInputItem {
-        let body =
-            FunctionCallOutputBody::ContentItems(vec![FunctionCallOutputContentItem::InputImage {
+        let body = FunctionCallOutputBody::ContentItems(vec![
+            FunctionCallOutputContentItem::InputText {
+                text: format!("[view_image source: {}]", self.source_path),
+            },
+            FunctionCallOutputContentItem::InputImage {
                 image_url: self.image_url.clone(),
                 detail: self.image_detail,
-            }]);
+            },
+        ]);
         let output = FunctionCallOutputPayload {
             body,
             success: Some(true),
@@ -199,6 +205,7 @@ impl ToolOutput for ViewImageOutput {
 
     fn code_mode_result(&self, _payload: &ToolPayload) -> serde_json::Value {
         serde_json::json!({
+            "source_path": self.source_path,
             "image_url": self.image_url,
             "detail": self.image_detail
         })
@@ -214,6 +221,7 @@ mod tests {
     #[test]
     fn code_mode_result_returns_image_url_object() {
         let output = ViewImageOutput {
+            source_path: "/tmp/example.png".to_string(),
             image_url: "data:image/png;base64,AAA".to_string(),
             image_detail: Some(DEFAULT_IMAGE_DETAIL),
         };
@@ -225,9 +233,39 @@ mod tests {
         assert_eq!(
             result,
             json!({
+                "source_path": "/tmp/example.png",
                 "image_url": "data:image/png;base64,AAA",
                 "detail": "high",
             })
         );
+    }
+
+    #[test]
+    fn response_item_includes_source_path_before_image() {
+        let output = ViewImageOutput {
+            source_path: "/tmp/example.png".to_string(),
+            image_url: "data:image/png;base64,AAA".to_string(),
+            image_detail: Some(DEFAULT_IMAGE_DETAIL),
+        };
+
+        let response = output.to_response_item(
+            "call-1",
+            &ToolPayload::Function {
+                arguments: "{}".to_string(),
+            },
+        );
+        let ResponseInputItem::FunctionCallOutput { output, .. } = response else {
+            panic!("expected function call output");
+        };
+        let expected = vec![
+            FunctionCallOutputContentItem::InputText {
+                text: "[view_image source: /tmp/example.png]".to_string(),
+            },
+            FunctionCallOutputContentItem::InputImage {
+                image_url: "data:image/png;base64,AAA".to_string(),
+                detail: Some(DEFAULT_IMAGE_DETAIL),
+            },
+        ];
+        assert_eq!(output.content_items(), Some(expected.as_slice()));
     }
 }

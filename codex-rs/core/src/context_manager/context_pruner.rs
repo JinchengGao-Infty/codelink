@@ -77,6 +77,7 @@ struct ToolCallMetadata {
     name: String,
     input_preview: String,
     input_chars: usize,
+    source_path: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -165,11 +166,12 @@ fn prune_items_for_prompt(items: &mut Vec<ResponseItem>, config: ContextPrunerCo
     let maintenance_cutoff = image_cutoff.max(heavy_cutoff);
     if maintenance_cutoff > 0 {
         let image_placeholder = image_placeholder(checkpoint.as_ref());
+        let metadata_by_call_id = tool_call_metadata_by_id(items);
         prune_duplicate_tool_outputs(items, maintenance_cutoff);
         purge_old_failed_tool_payloads(items, maintenance_cutoff);
         prune_heavy_tool_payloads(items, heavy_cutoff, config.heavy_tool_chars);
         for item in &mut items[..image_cutoff] {
-            prune_item_images(item, &image_placeholder);
+            prune_item_images(item, &image_placeholder, &metadata_by_call_id);
         }
     }
 
@@ -262,7 +264,7 @@ fn pruning_cutoff_after_latest_prunable_image(
         .take(recent_turn_guard_index)
         .filter(|(_, item)| item_has_prunable_image(item))
         .map(|(index, _)| index.saturating_add(1))
-        .last()
+        .next_back()
         .unwrap_or(0)
 }
 
@@ -277,7 +279,7 @@ fn pruning_cutoff_after_latest_prunable_heavy_tool(
         .take(recent_turn_guard_index)
         .filter(|(_, item)| item_has_prunable_heavy_tool_payload(item, heavy_tool_chars))
         .map(|(index, _)| index.saturating_add(1))
-        .last()
+        .next_back()
         .unwrap_or(0)
 }
 
@@ -354,7 +356,11 @@ fn item_has_prunable_heavy_tool_payload(item: &ResponseItem, heavy_tool_chars: u
     }
 }
 
-fn prune_item_images(item: &mut ResponseItem, image_placeholder: &str) {
+fn prune_item_images(
+    item: &mut ResponseItem,
+    image_placeholder: &str,
+    metadata_by_call_id: &HashMap<String, ToolCallMetadata>,
+) {
     match item {
         ResponseItem::Message { content, .. } => {
             for content_item in content {
@@ -365,9 +371,17 @@ fn prune_item_images(item: &mut ResponseItem, image_placeholder: &str) {
                 }
             }
         }
-        ResponseItem::FunctionCallOutput { output, .. }
-        | ResponseItem::CustomToolCallOutput { output, .. } => {
-            prune_function_output_images(output, image_placeholder);
+        ResponseItem::FunctionCallOutput { call_id, output } => {
+            let placeholder =
+                image_placeholder_for_call(image_placeholder, call_id, metadata_by_call_id);
+            prune_function_output_images(output, &placeholder);
+        }
+        ResponseItem::CustomToolCallOutput {
+            call_id, output, ..
+        } => {
+            let placeholder =
+                image_placeholder_for_call(image_placeholder, call_id, metadata_by_call_id);
+            prune_function_output_images(output, &placeholder);
         }
         ResponseItem::ImageGenerationCall { result, .. } => {
             result.clear();
@@ -382,6 +396,23 @@ fn prune_item_images(item: &mut ResponseItem, image_placeholder: &str) {
         | ResponseItem::Compaction { .. }
         | ResponseItem::Other => {}
     }
+}
+
+fn image_placeholder_for_call(
+    image_placeholder: &str,
+    call_id: &str,
+    metadata_by_call_id: &HashMap<String, ToolCallMetadata>,
+) -> String {
+    let Some(metadata) = metadata_by_call_id.get(call_id) else {
+        return image_placeholder.to_string();
+    };
+    let Some(source_path) = metadata.source_path.as_deref() else {
+        return image_placeholder.to_string();
+    };
+    format!(
+        "{image_placeholder}; source_tool={}; source_path={source_path}",
+        metadata.name
+    )
 }
 
 fn prune_function_output_images(output: &mut FunctionCallOutputPayload, image_placeholder: &str) {
@@ -408,7 +439,7 @@ fn latest_checkpoint_directive(items: &[ResponseItem]) -> Option<CheckpointDirec
         .flat_map(|content| content.iter())
         .filter_map(content_item_text)
         .filter_map(extract_checkpoint_directive)
-        .last()
+        .next_back()
 }
 
 fn strip_checkpoint_directives_from_prompt(items: &mut [ResponseItem]) {
@@ -889,6 +920,7 @@ fn tool_call_metadata_by_id(items: &[ResponseItem]) -> HashMap<String, ToolCallM
                         name: name.clone(),
                         input_preview: preview(arguments),
                         input_chars: arguments.chars().count(),
+                        source_path: view_image_source_path(name, arguments),
                     },
                 );
             }
@@ -906,6 +938,24 @@ fn tool_call_metadata_by_id(items: &[ResponseItem]) -> HashMap<String, ToolCallM
         }
     }
     metadata_by_call_id
+}
+
+#[derive(Debug, Deserialize)]
+struct ViewImageSourceArgs {
+    path: Option<String>,
+}
+
+fn view_image_source_path(tool_name: &str, arguments: &str) -> Option<String> {
+    if tool_name != "view_image" {
+        return None;
+    }
+    serde_json::from_str::<ViewImageSourceArgs>(arguments)
+        .ok()
+        .and_then(|args| args.path)
+        .and_then(|path| {
+            let path = path.trim().to_string();
+            (!path.is_empty()).then_some(path)
+        })
 }
 
 fn heavy_tool_input_placeholder(
@@ -1337,6 +1387,44 @@ mod tests {
                 user_text("recent"),
             ]
         );
+    }
+
+    #[test]
+    fn pruned_view_image_output_preserves_source_path_in_placeholder() {
+        let mut items = vec![
+            user_text("old"),
+            ResponseItem::FunctionCall {
+                id: None,
+                name: "view_image".to_string(),
+                namespace: None,
+                arguments: "{\"path\":\"refs/hero.png\"}".to_string(),
+                call_id: "view-image-call".to_string(),
+            },
+            ResponseItem::FunctionCallOutput {
+                call_id: "view-image-call".to_string(),
+                output: FunctionCallOutputPayload::from_content_items(vec![
+                    FunctionCallOutputContentItem::InputImage {
+                        image_url: "data:image/png;base64,old".to_string(),
+                        detail: None,
+                    },
+                ]),
+            },
+            user_text("recent"),
+        ];
+
+        prune_items_for_prompt_for_test(&mut items, config(1, 1));
+
+        assert!(matches!(
+            &items[2],
+            ResponseItem::FunctionCallOutput { output, .. }
+                if output.content_items().is_some_and(|content_items|
+                    matches!(&content_items[0], FunctionCallOutputContentItem::InputText { text }
+                        if text.contains(IMAGE_PLACEHOLDER)
+                            && text.contains("source_tool=view_image")
+                            && text.contains("source_path=refs/hero.png")
+                    )
+                )
+        ));
     }
 
     #[test]

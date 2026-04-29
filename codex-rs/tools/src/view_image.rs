@@ -40,6 +40,10 @@ fn view_image_output_schema() -> Value {
     json!({
         "type": "object",
         "properties": {
+            "source_path": {
+                "type": "string",
+                "description": "Absolute local path of the image that was loaded."
+            },
             "image_url": {
                 "type": "string",
                 "description": "Data URL for the loaded image."
@@ -49,7 +53,7 @@ fn view_image_output_schema() -> Value {
                 "description": "Image detail hint returned by view_image. Returns `original` when original resolution is preserved, otherwise `null`."
             }
         },
-        "required": ["image_url", "detail"],
+        "required": ["source_path", "image_url", "detail"],
         "additionalProperties": false
     })
 }

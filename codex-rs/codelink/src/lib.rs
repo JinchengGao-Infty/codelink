@@ -76,9 +76,9 @@ pub struct BgArgs {
     #[arg(long, value_name = "DIR")]
     pub cwd: Option<PathBuf>,
 
-    /// CodeLink-compatible executable to run.
-    #[arg(long, default_value = "codel")]
-    pub codex_bin: String,
+    /// CodeLink-compatible executable to run. Defaults to the current executable.
+    #[arg(long)]
+    pub codex_bin: Option<String>,
 
     /// Extra argument passed to CodeLink before `exec`. Repeat for multiple args.
     #[arg(long = "codex-arg", value_name = "ARG", allow_hyphen_values = true)]
@@ -425,8 +425,13 @@ async fn bg(args: BgArgs) -> Result<()> {
         .with_context(|| format!("failed to create {}", artifact_dir.display()))?;
 
     let cwd = args.cwd.unwrap_or(std::env::current_dir()?);
+    let codex_bin = args.codex_bin.unwrap_or_else(|| {
+        std::env::current_exe()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|_| "codel".to_string())
+    });
     let spec = CodexAgentSpec {
-        codex_bin: args.codex_bin,
+        codex_bin,
         codex_args: args.codex_args,
         prompt,
     };
@@ -1500,7 +1505,7 @@ fn parse_duration_seconds(value: &str) -> Result<u64> {
 
 fn shell_quote(value: &str) -> String {
     shlex::try_quote(value)
-        .map(|value| value.into_owned())
+        .map(std::borrow::Cow::into_owned)
         .unwrap_or_else(|_| "''".to_string())
 }
 

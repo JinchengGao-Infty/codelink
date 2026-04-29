@@ -86,6 +86,33 @@ async fn submission_preserves_text_elements_and_local_images() {
 }
 
 #[tokio::test]
+async fn submission_blocks_text_only_image_placeholder() {
+    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
+    chat.thread_id = Some(ThreadId::new());
+
+    let text = "[Image #1] generate only this person".to_string();
+    chat.bottom_pane
+        .set_composer_text(text.clone(), Vec::new(), Vec::new());
+    chat.handle_key_event(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert!(
+        op_rx.try_recv().is_err(),
+        "text-only image placeholder should not submit a model turn"
+    );
+    assert_eq!(chat.bottom_pane.composer_text(), text);
+
+    let cells = drain_insert_history(&mut rx);
+    let warning = cells
+        .last()
+        .map(|lines| lines_to_single_string(lines))
+        .expect("expected warning cell");
+    assert!(
+        warning.contains("has no attached image"),
+        "expected missing image warning, got: {warning:?}"
+    );
+}
+
+#[tokio::test]
 async fn submission_includes_configured_permission_profile() {
     let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
 

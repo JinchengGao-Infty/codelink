@@ -338,15 +338,25 @@ async fn view_image_tool_attaches_local_image() -> anyhow::Result<()> {
         .expect("function_call_output should be a content item array");
     assert_eq!(
         output_items.len(),
-        1,
-        "view_image should return only the image content item (no tag/label text)"
+        2,
+        "view_image should return source path text plus the image content item"
     );
     assert_eq!(
         output_items[0].get("type").and_then(Value::as_str),
-        Some("input_image"),
-        "view_image should return only an input_image content item"
+        Some("input_text"),
+        "view_image should return source path text first"
     );
-    let image_url = output_items[0]
+    let expected_source_text = format!("[view_image source: {}]", abs_path.display());
+    assert_eq!(
+        output_items[0].get("text").and_then(Value::as_str),
+        Some(expected_source_text.as_str())
+    );
+    assert_eq!(
+        output_items[1].get("type").and_then(Value::as_str),
+        Some("input_image"),
+        "view_image should return an input_image content item"
+    );
+    let image_url = output_items[1]
         .get("image_url")
         .and_then(Value::as_str)
         .expect("image_url present");
@@ -446,12 +456,12 @@ async fn view_image_tool_can_preserve_original_resolution_when_requested_on_gpt5
         .get("output")
         .and_then(Value::as_array)
         .expect("function_call_output should be a content item array");
-    assert_eq!(output_items.len(), 1);
+    assert_eq!(output_items.len(), 2);
     assert_eq!(
-        output_items[0].get("detail").and_then(Value::as_str),
+        output_items[1].get("detail").and_then(Value::as_str),
         Some("original")
     );
-    let image_url = output_items[0]
+    let image_url = output_items[1]
         .get("image_url")
         .and_then(Value::as_str)
         .expect("image_url present");
@@ -639,12 +649,12 @@ async fn view_image_tool_treats_null_detail_as_omitted() -> anyhow::Result<()> {
         .get("output")
         .and_then(Value::as_array)
         .expect("function_call_output should be a content item array");
-    assert_eq!(output_items.len(), 1);
+    assert_eq!(output_items.len(), 2);
     assert_eq!(
-        output_items[0].get("detail").and_then(Value::as_str),
+        output_items[1].get("detail").and_then(Value::as_str),
         Some("high")
     );
-    let image_url = output_items[0]
+    let image_url = output_items[1]
         .get("image_url")
         .and_then(Value::as_str)
         .expect("image_url present");
@@ -741,13 +751,13 @@ async fn view_image_tool_resizes_when_model_lacks_original_detail_support() -> a
         .get("output")
         .and_then(Value::as_array)
         .expect("function_call_output should be a content item array");
-    assert_eq!(output_items.len(), 1);
+    assert_eq!(output_items.len(), 2);
     assert_eq!(
-        output_items[0].get("detail").and_then(Value::as_str),
+        output_items[1].get("detail").and_then(Value::as_str),
         Some("high")
     );
 
-    let image_url = output_items[0]
+    let image_url = output_items[1]
         .get("image_url")
         .and_then(Value::as_str)
         .expect("image_url present");
@@ -847,12 +857,12 @@ async fn view_image_tool_does_not_force_original_resolution_with_capability_only
         .get("output")
         .and_then(Value::as_array)
         .expect("function_call_output should be a content item array");
-    assert_eq!(output_items.len(), 1);
+    assert_eq!(output_items.len(), 2);
     assert_eq!(
-        output_items[0].get("detail").and_then(Value::as_str),
+        output_items[1].get("detail").and_then(Value::as_str),
         Some("high")
     );
-    let image_url = output_items[0]
+    let image_url = output_items[1]
         .get("image_url")
         .and_then(Value::as_str)
         .expect("image_url present");

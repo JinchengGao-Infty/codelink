@@ -1281,6 +1281,42 @@ pub(crate) fn create_initial_user_message(
     }
 }
 
+fn image_placeholder_without_attachment_warning(user_message: &UserMessage) -> Option<String> {
+    let total_images = user_message.remote_image_urls.len() + user_message.local_images.len();
+    let missing_label = image_placeholder_label_numbers(&user_message.text)
+        .into_iter()
+        .find(|label| *label == 0 || *label > total_images)?;
+    Some(format!(
+        "Image placeholder {} has no attached image. Reattach the image or provide a readable local path before submitting.",
+        local_image_label_text(missing_label)
+    ))
+}
+
+fn image_placeholder_label_numbers(text: &str) -> Vec<usize> {
+    const PREFIX: &str = "[Image #";
+
+    let mut labels = Vec::new();
+    let mut cursor = 0usize;
+    let bytes = text.as_bytes();
+    while let Some(offset) = text[cursor..].find(PREFIX) {
+        let start = cursor + offset;
+        let mut end = start + PREFIX.len();
+        let digits_start = end;
+        while end < bytes.len() && bytes[end].is_ascii_digit() {
+            end += 1;
+        }
+        if end > digits_start && end < bytes.len() && bytes[end] == b']' {
+            if let Ok(label) = text[digits_start..end].parse::<usize>() {
+                labels.push(label);
+            }
+            cursor = end + 1;
+        } else {
+            cursor = start + PREFIX.len();
+        }
+    }
+    labels
+}
+
 fn append_text_with_rebased_elements(
     target_text: &mut String,
     target_text_elements: &mut Vec<TextElement>,
@@ -6191,6 +6227,26 @@ impl ChatWidget {
         {
             return (false, None);
         }
+        if !user_message.text.starts_with('!')
+            && let Some(warning) = image_placeholder_without_attachment_warning(&user_message)
+        {
+            let UserMessage {
+                text,
+                text_elements,
+                local_images,
+                mention_bindings,
+                remote_image_urls,
+            } = user_message_for_restore(user_message, &history_record);
+            self.restore_blocked_submission_with_warning(
+                text,
+                text_elements,
+                local_images,
+                mention_bindings,
+                remote_image_urls,
+                warning,
+            );
+            return (false, None);
+        }
         if (!user_message.local_images.is_empty() || !user_message.remote_image_urls.is_empty())
             && !self.current_model_supports_images()
         {
@@ -6536,6 +6592,25 @@ impl ChatWidget {
         mention_bindings: Vec<MentionBinding>,
         remote_image_urls: Vec<String>,
     ) {
+        self.restore_blocked_submission_with_warning(
+            text,
+            text_elements,
+            local_images,
+            mention_bindings,
+            remote_image_urls,
+            self.image_inputs_not_supported_message(),
+        );
+    }
+
+    fn restore_blocked_submission_with_warning(
+        &mut self,
+        text: String,
+        text_elements: Vec<TextElement>,
+        local_images: Vec<LocalImageAttachment>,
+        mention_bindings: Vec<MentionBinding>,
+        remote_image_urls: Vec<String>,
+        warning: String,
+    ) {
         // Preserve the user's composed payload so they can retry after changing models.
         let local_image_paths = local_images.iter().map(|img| img.path.clone()).collect();
         self.set_remote_image_urls(remote_image_urls);
@@ -6545,9 +6620,7 @@ impl ChatWidget {
             local_image_paths,
             mention_bindings,
         );
-        self.add_to_history(history_cell::new_warning_event(
-            self.image_inputs_not_supported_message(),
-        ));
+        self.add_to_history(history_cell::new_warning_event(warning));
         self.request_redraw();
     }
 
