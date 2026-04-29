@@ -1807,9 +1807,9 @@ fn codelink_active_job_lines(job: &codex_codelink::CodeLinkJobSummary) -> Vec<Li
         vec![
             "  ".into(),
             "check: ".dim(),
-            format!("codelink result {}", job.job_id).cyan(),
+            format!("codel result {}", job.job_id).cyan(),
             " / ".dim(),
-            format!("codelink logs {}", job.job_id).cyan(),
+            format!("codel logs {}", job.job_id).cyan(),
         ]
         .into(),
     ]
@@ -1838,7 +1838,7 @@ fn codelink_notification_lines(
         vec![
             "  ".into(),
             "result: ".dim(),
-            format!("codelink result {}", notification.job_id).cyan(),
+            format!("codel result {}", notification.job_id).cyan(),
         ]
         .into(),
     );
@@ -1886,8 +1886,8 @@ mod codelink_notification_tests {
 
         let rendered = flatten(codelink_active_job_lines(&job));
         assert!(rendered.contains("running background job: job-a"));
-        assert!(rendered.contains("codelink result job-a"));
-        assert!(rendered.contains("codelink logs job-a"));
+        assert!(rendered.contains("codel result job-a"));
+        assert!(rendered.contains("codel logs job-a"));
     }
 
     #[test]
@@ -1901,7 +1901,7 @@ mod codelink_notification_tests {
 
         let rendered = flatten(codelink_notification_lines(&notification));
         assert!(rendered.contains("background job job-a completed"));
-        assert!(rendered.contains("codelink result job-a"));
+        assert!(rendered.contains("codel result job-a"));
         assert!(rendered.contains("/tmp/job-a/notification.md"));
     }
 }

@@ -19,6 +19,7 @@ workspace = true
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 dirs = { workspace = true }
+libc = { workspace = true }
 regex-lite = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

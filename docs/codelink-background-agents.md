@@ -115,7 +115,10 @@ its next heartbeat and kills the child process.
 
 ### TUI Notification Bridge
 
-The active CodeLink TUI polls the durable job store. It does two things:
+The active CodeLink TUI registers a local wake socket and keeps a slow polling
+fallback. Workers send a wake packet when a job is registered or when a
+notification is written, so completion events do not depend on continuous
+polling. The bridge does two things:
 
 1. newly observed `running` or `stalled` jobs are inserted into history as a
    visible background-task reminder;

@@ -175,6 +175,11 @@ On startup and then periodically, the TUI should:
 The reminder bridge must not create a CodeLink store just by launching the TUI.
 If `~/.codelink/jobs.sqlite` does not exist, it should stay silent.
 
+The periodic check is only a fallback. The normal path should be active wake:
+the TUI binds a local wake socket, and background workers send a wake packet
+when a job starts or writes a terminal notification, so a 2-hour monitor does
+not require the controlling session to poll constantly.
+
 ## Manga Profile Migration
 
 The old `codex-manga` fork should not remain a separate long-lived fork. Its

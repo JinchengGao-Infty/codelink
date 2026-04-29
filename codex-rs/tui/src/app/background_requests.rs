@@ -6,6 +6,9 @@
 
 use super::*;
 use std::collections::HashSet;
+use std::sync::Arc;
+use std::sync::Mutex;
+use tokio::sync::mpsc::UnboundedSender;
 
 impl App {
     pub(super) fn fetch_mcp_inventory(
@@ -81,45 +84,15 @@ impl App {
 
     pub(super) fn start_codelink_notification_bridge(&mut self) {
         let app_event_tx = self.app_event_tx.app_event_tx.clone();
+        let announced_active_jobs = Arc::new(Mutex::new(HashSet::new()));
+        start_codelink_wake_listener(app_event_tx.clone(), announced_active_jobs.clone());
         tokio::spawn(async move {
-            let mut announced_active_jobs: HashSet<String> = HashSet::new();
-            let mut interval = tokio::time::interval(Duration::from_secs(5));
+            let mut interval = tokio::time::interval(Duration::from_secs(60));
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             loop {
                 interval.tick().await;
-
-                match codex_codelink::active_jobs().await {
-                    Ok(jobs) => {
-                        let new_jobs = jobs
-                            .into_iter()
-                            .filter(|job| announced_active_jobs.insert(job.job_id.clone()))
-                            .collect::<Vec<_>>();
-                        if !new_jobs.is_empty()
-                            && app_event_tx
-                                .send(AppEvent::CodeLinkActiveJobsDiscovered { jobs: new_jobs })
-                                .is_err()
-                        {
-                            break;
-                        }
-                    }
-                    Err(err) => {
-                        tracing::debug!(error = %err, "failed to poll active CodeLink jobs");
-                    }
-                }
-
-                match codex_codelink::drain_unread_notifications().await {
-                    Ok(notifications) if notifications.is_empty() => {}
-                    Ok(notifications) => {
-                        if app_event_tx
-                            .send(AppEvent::CodeLinkNotificationsLoaded { notifications })
-                            .is_err()
-                        {
-                            break;
-                        }
-                    }
-                    Err(err) => {
-                        tracing::debug!(error = %err, "failed to poll CodeLink notifications");
-                    }
+                if !poll_codelink_jobs_once(&app_event_tx, &announced_active_jobs).await {
+                    break;
                 }
             }
         });
@@ -434,6 +407,79 @@ impl App {
             overlay.replace_cells(self.transcript_cells.clone());
         }
     }
+}
+
+async fn poll_codelink_jobs_once(
+    app_event_tx: &UnboundedSender<AppEvent>,
+    announced_active_jobs: &Arc<Mutex<HashSet<String>>>,
+) -> bool {
+    match codex_codelink::active_jobs().await {
+        Ok(jobs) => {
+            let new_jobs = {
+                let mut announced = announced_active_jobs
+                    .lock()
+                    .expect("CodeLink active job set poisoned");
+                jobs.into_iter()
+                    .filter(|job| announced.insert(job.job_id.clone()))
+                    .collect::<Vec<_>>()
+            };
+            if !new_jobs.is_empty()
+                && app_event_tx
+                    .send(AppEvent::CodeLinkActiveJobsDiscovered { jobs: new_jobs })
+                    .is_err()
+            {
+                return false;
+            }
+        }
+        Err(err) => {
+            tracing::debug!(error = %err, "failed to poll active CodeLink jobs");
+        }
+    }
+
+    match codex_codelink::drain_unread_notifications().await {
+        Ok(notifications) if notifications.is_empty() => {}
+        Ok(notifications) => {
+            if app_event_tx
+                .send(AppEvent::CodeLinkNotificationsLoaded { notifications })
+                .is_err()
+            {
+                return false;
+            }
+        }
+        Err(err) => {
+            tracing::debug!(error = %err, "failed to poll CodeLink notifications");
+        }
+    }
+    true
+}
+
+#[cfg(unix)]
+fn start_codelink_wake_listener(
+    app_event_tx: UnboundedSender<AppEvent>,
+    announced_active_jobs: Arc<Mutex<HashSet<String>>>,
+) {
+    let Ok((socket, _guard)) = codex_codelink::bind_wake_socket() else {
+        return;
+    };
+    let handle = tokio::runtime::Handle::current();
+    std::thread::spawn(move || {
+        let _guard = _guard;
+        let mut buf = [0_u8; 64];
+        while socket.recv(&mut buf).is_ok() {
+            let app_event_tx = app_event_tx.clone();
+            let announced_active_jobs = announced_active_jobs.clone();
+            handle.spawn(async move {
+                let _ = poll_codelink_jobs_once(&app_event_tx, &announced_active_jobs).await;
+            });
+        }
+    });
+}
+
+#[cfg(not(unix))]
+fn start_codelink_wake_listener(
+    _app_event_tx: UnboundedSender<AppEvent>,
+    _announced_active_jobs: Arc<Mutex<HashSet<String>>>,
+) {
 }
 
 pub(super) async fn fetch_all_mcp_server_statuses(

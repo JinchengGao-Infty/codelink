@@ -2288,6 +2288,7 @@ dependencies = [
  "anyhow",
  "clap",
  "dirs",
+ "libc",
  "pretty_assertions",
  "regex-lite",
  "serde",

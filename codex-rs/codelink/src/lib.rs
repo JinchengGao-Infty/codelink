@@ -1,6 +1,11 @@
 use std::fmt;
+#[cfg(unix)]
+use std::os::unix::net::UnixDatagram;
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::path::PathBuf;
+use std::process::Command as StdCommand;
 use std::process::Stdio;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
@@ -69,7 +74,7 @@ pub struct BgArgs {
     pub cwd: Option<PathBuf>,
 
     /// CodeLink-compatible executable to run.
-    #[arg(long, default_value = "codelink")]
+    #[arg(long, default_value = "codel")]
     pub codex_bin: String,
 
     /// Extra argument passed to CodeLink before `exec`. Repeat for multiple args.
@@ -292,6 +297,75 @@ impl RuntimePaths {
             .with_context(|| format!("failed to create {}", self.jobs_dir.display()))?;
         Ok(())
     }
+
+    fn wake_socket_path(&self) -> PathBuf {
+        self.db_path.with_file_name("wake.sock")
+    }
+}
+
+#[cfg(unix)]
+pub struct WakeSocketGuard {
+    socket_path: PathBuf,
+}
+
+#[cfg(unix)]
+impl Drop for WakeSocketGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.socket_path);
+    }
+}
+
+#[cfg(unix)]
+pub fn bind_wake_socket() -> Result<(UnixDatagram, WakeSocketGuard)> {
+    let paths = RuntimePaths::discover()?;
+    let socket_path = paths.wake_socket_path();
+    if let Some(parent) = socket_path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+    match std::fs::remove_file(&socket_path) {
+        Ok(()) => {}
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+        Err(err) => {
+            return Err(err)
+                .with_context(|| format!("failed to remove stale {}", socket_path.display()));
+        }
+    }
+    let socket = UnixDatagram::bind(&socket_path)
+        .with_context(|| format!("failed to bind {}", socket_path.display()))?;
+    Ok((socket, WakeSocketGuard { socket_path }))
+}
+
+#[cfg(unix)]
+pub fn notify_active_session() -> Result<()> {
+    let paths = RuntimePaths::discover()?;
+    let socket_path = paths.wake_socket_path();
+    if !socket_path.exists() {
+        return Ok(());
+    }
+    let socket = UnixDatagram::unbound().context("failed to create CodeLink wake socket")?;
+    match socket.send_to(b"codelink-wake", &socket_path) {
+        Ok(_) => Ok(()),
+        Err(err)
+            if matches!(
+                err.kind(),
+                std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused
+            ) =>
+        {
+            Ok(())
+        }
+        Err(err) => Err(err).with_context(|| {
+            format!(
+                "failed to notify CodeLink wake socket {}",
+                socket_path.display()
+            )
+        }),
+    }
+}
+
+#[cfg(not(unix))]
+pub fn notify_active_session() -> Result<()> {
+    Ok(())
 }
 
 pub async fn run_main(cli: Cli) -> Result<()> {
@@ -357,13 +431,14 @@ async fn bg(args: BgArgs) -> Result<()> {
     )
     .await?;
     spawn_worker(&job_id, &artifact_dir).await?;
+    let _ = notify_active_session();
 
     println!("STATUS: STARTED — CodeLink background agent registered");
     println!("job_id: {job_id}");
     println!("cwd: {}", cwd.display());
     println!("codex_bin: {}", spec.codex_bin);
     println!("artifact_dir: {}", artifact_dir.display());
-    println!("check: codelink result {job_id}; codelink logs {job_id}");
+    println!("check: codel result {job_id}; codel logs {job_id}");
     Ok(())
 }
 
@@ -426,6 +501,7 @@ async fn watch_remote(args: WatchRemoteArgs) -> Result<()> {
     )
     .await?;
     spawn_worker(&job_id, &artifact_dir).await?;
+    let _ = notify_active_session();
 
     println!("STATUS: STARTED — CodeLink background watcher registered");
     println!("job_id: {job_id}");
@@ -433,7 +509,7 @@ async fn watch_remote(args: WatchRemoteArgs) -> Result<()> {
     println!("tmux_session: {}", spec.tmux_session);
     println!("remote_log: {}", spec.log_path);
     println!("artifact_dir: {}", artifact_dir.display());
-    println!("check: codelink result {job_id}; codelink logs {job_id}");
+    println!("check: codel result {job_id}; codel logs {job_id}");
     Ok(())
 }
 
@@ -445,7 +521,7 @@ async fn spawn_worker(job_id: &str, artifact_dir: &Path) -> Result<()> {
         .with_context(|| format!("failed to create {}", worker_log.display()))?;
     let stderr = std::fs::File::create(&worker_err)
         .with_context(|| format!("failed to create {}", worker_err.display()))?;
-    let mut command = Command::new(&exe);
+    let mut command = StdCommand::new(&exe);
     if exe
         .file_stem()
         .and_then(|name| name.to_str())
@@ -453,6 +529,7 @@ async fn spawn_worker(job_id: &str, artifact_dir: &Path) -> Result<()> {
     {
         command.arg("codelink");
     }
+    detach_worker_process(&mut command);
     command
         .arg("worker")
         .arg("--job-id")
@@ -463,6 +540,24 @@ async fn spawn_worker(job_id: &str, artifact_dir: &Path) -> Result<()> {
     command.spawn().context("failed to spawn CodeLink worker")?;
     Ok(())
 }
+
+#[cfg(unix)]
+fn detach_worker_process(command: &mut StdCommand) {
+    // The foreground Codex exec runtime may clean up the process group after
+    // the launcher command exits. Start the worker in a new session so it can
+    // supervise the background job independently.
+    unsafe {
+        command.pre_exec(|| {
+            if libc::setsid() == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+}
+
+#[cfg(not(unix))]
+fn detach_worker_process(_command: &mut StdCommand) {}
 
 async fn run_worker(args: WorkerArgs) -> Result<()> {
     let paths = RuntimePaths::discover()?;
@@ -1076,6 +1171,7 @@ async fn write_notification(
     .bind(path.display().to_string())
     .execute(pool)
     .await?;
+    let _ = notify_active_session();
     Ok(())
 }
 
@@ -1253,6 +1349,16 @@ fn trim_for_result(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::OnceLock;
+
+    static ENV_LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+
+    async fn env_lock() -> tokio::sync::MutexGuard<'static, ()> {
+        ENV_LOCK
+            .get_or_init(|| tokio::sync::Mutex::new(()))
+            .lock()
+            .await
+    }
     use pretty_assertions::assert_eq;
 
     #[test]
@@ -1333,6 +1439,7 @@ mod tests {
 
     #[tokio::test]
     async fn drain_unread_notifications_reads_files_and_marks_them_read() -> Result<()> {
+        let _env_guard = env_lock().await;
         let temp_home = tempfile::tempdir()?;
         let paths = RuntimePaths {
             jobs_dir: temp_home.path().join("jobs"),
@@ -1370,6 +1477,7 @@ mod tests {
 
     #[tokio::test]
     async fn active_jobs_returns_only_running_or_stalled_jobs() -> Result<()> {
+        let _env_guard = env_lock().await;
         let temp_home = tempfile::tempdir()?;
         let paths = RuntimePaths {
             jobs_dir: temp_home.path().join("jobs"),
@@ -1394,6 +1502,30 @@ mod tests {
         assert_eq!(jobs[0].job_id, "running-job");
         assert_eq!(jobs[0].kind, "codex_agent");
         assert_eq!(jobs[0].status, "running");
+
+        match previous {
+            Some(value) => unsafe { std::env::set_var("CODELINK_HOME", value) },
+            None => unsafe { std::env::remove_var("CODELINK_HOME") },
+        }
+
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn wake_socket_receives_notifications() -> Result<()> {
+        let _env_guard = env_lock().await;
+        let temp_home = tempfile::tempdir()?;
+        let previous = std::env::var("CODELINK_HOME").ok();
+        unsafe { std::env::set_var("CODELINK_HOME", temp_home.path()) };
+
+        let (socket, _guard) = bind_wake_socket()?;
+        socket.set_read_timeout(Some(std::time::Duration::from_secs(2)))?;
+        notify_active_session()?;
+
+        let mut buf = [0_u8; 64];
+        let bytes = socket.recv(&mut buf)?;
+        assert_eq!(&buf[..bytes], b"codelink-wake");
 
         match previous {
             Some(value) => unsafe { std::env::set_var("CODELINK_HOME", value) },
