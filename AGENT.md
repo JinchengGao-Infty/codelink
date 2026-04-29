@@ -178,10 +178,12 @@ the user to remember polling commands manually.
 
 On startup, and when woken by the CodeLink socket, the TUI should:
 
-1. read active CodeLink jobs from `~/.codelink/jobs.sqlite`;
+1. read active CodeLink jobs from `~/.codelink/jobs.sqlite` for the current
+   thread owner, or for legacy/manual jobs whose recorded cwd matches the
+   active workspace;
 2. insert a compact history reminder for newly observed `running` or `stalled`
-   jobs;
-3. drain unread completion notifications;
+   jobs in that scope;
+3. drain unread completion notifications in that scope only;
 4. read each job's `notification.md`;
 5. insert a compact completion message that points to `codel result <job_id>`
    and `codel logs <job_id>`.

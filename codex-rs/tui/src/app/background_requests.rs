@@ -85,14 +85,23 @@ impl App {
     pub(super) fn start_codelink_notification_bridge(&mut self) {
         let app_event_tx = self.app_event_tx.app_event_tx.clone();
         let announced_active_jobs = Arc::new(Mutex::new(HashSet::new()));
-        start_codelink_wake_listener(app_event_tx.clone(), announced_active_jobs.clone());
+        let scope = codex_codelink::CodeLinkScope::new(
+            self.config.cwd.to_path_buf(),
+            self.current_displayed_thread_id()
+                .map(|thread_id| thread_id.to_string()),
+        );
+        start_codelink_wake_listener(
+            app_event_tx.clone(),
+            announced_active_jobs.clone(),
+            scope.clone(),
+        );
         tokio::spawn(async move {
-            if !poll_codelink_jobs_once(&app_event_tx, &announced_active_jobs).await {
+            if !poll_codelink_jobs_once(&app_event_tx, &announced_active_jobs, &scope).await {
                 return;
             }
             loop {
                 tokio::time::sleep(Duration::from_secs(15 * 60)).await;
-                if !poll_codelink_jobs_once(&app_event_tx, &announced_active_jobs).await {
+                if !poll_codelink_jobs_once(&app_event_tx, &announced_active_jobs, &scope).await {
                     break;
                 }
             }
@@ -413,8 +422,9 @@ impl App {
 async fn poll_codelink_jobs_once(
     app_event_tx: &UnboundedSender<AppEvent>,
     announced_active_jobs: &Arc<Mutex<HashSet<String>>>,
+    scope: &codex_codelink::CodeLinkScope,
 ) -> bool {
-    match codex_codelink::active_jobs().await {
+    match codex_codelink::active_jobs_for_scope(scope).await {
         Ok(jobs) => {
             let active_count = jobs.len();
             if app_event_tx
@@ -446,7 +456,7 @@ async fn poll_codelink_jobs_once(
         }
     }
 
-    match codex_codelink::drain_unread_notifications().await {
+    match codex_codelink::drain_unread_notifications_for_scope(scope).await {
         Ok(notifications) if notifications.is_empty() => {}
         Ok(notifications) => {
             if app_event_tx
@@ -467,6 +477,7 @@ async fn poll_codelink_jobs_once(
 fn start_codelink_wake_listener(
     app_event_tx: UnboundedSender<AppEvent>,
     announced_active_jobs: Arc<Mutex<HashSet<String>>>,
+    scope: codex_codelink::CodeLinkScope,
 ) {
     let Ok((socket, _guard)) = codex_codelink::bind_wake_socket() else {
         return;
@@ -478,8 +489,10 @@ fn start_codelink_wake_listener(
         while socket.recv(&mut buf).is_ok() {
             let app_event_tx = app_event_tx.clone();
             let announced_active_jobs = announced_active_jobs.clone();
+            let scope = scope.clone();
             handle.spawn(async move {
-                let _ = poll_codelink_jobs_once(&app_event_tx, &announced_active_jobs).await;
+                let _ =
+                    poll_codelink_jobs_once(&app_event_tx, &announced_active_jobs, &scope).await;
             });
         }
     });
@@ -489,6 +502,7 @@ fn start_codelink_wake_listener(
 fn start_codelink_wake_listener(
     _app_event_tx: UnboundedSender<AppEvent>,
     _announced_active_jobs: Arc<Mutex<HashSet<String>>>,
+    _scope: codex_codelink::CodeLinkScope,
 ) {
 }
 

@@ -13,6 +13,7 @@ const CODELINK_BUILTIN_DEVELOPER_INSTRUCTIONS: &str = r#"CodeLink built-in capab
 - Background jobs write artifacts under `~/.codelink/jobs/<job_id>/`, including `result.md`, logs, history, and `notification.md`.
 - When a CodeLink wake turn arrives, read `codel result <job_id>` for every listed job, summarize the outcome, and continue the pending work. Do not ask the user to poll manually.
 - The active TUI is woken by a local socket when jobs start or finish. Do not busy-poll jobs in the foreground loop. Startup checks and low-frequency fallback checks are acceptable; normal completion handling should rely on wake notifications.
+- TUI reminders and wake notifications are scoped to the current CodeLink thread owner. Legacy or manual jobs without a thread owner are scoped by matching the job cwd to the active workspace cwd.
 - The TUI status line may show active background work as `CodeLink N bg`. Treat that as the source of truth for user-visible running indicators.
 - Never auto-apply background agent changes to the main working tree unless the user explicitly asks. Prefer read-only exploration unless the prompt says to edit.
 - For image generation with reference images, CodeLink can use images already in conversation, user-attached images, and images loaded from local paths. The `image_generation` tool has no path, base64, or image argument; references are supplied by current prompt context. If the user provides a local image path or asks to use a local reference image, call `view_image` for each referenced image immediately before `image_generation`, then call `image_generation` with only the user's text prompt and edit instructions. For cutout, extraction, outfit, identity, style-transfer, or other reference-image work, phrase the prompt as an edit of the attached/local image, such as `edit the attached image to isolate only the referenced subject`, not as a fresh text-only generation. Do not claim image generation is text-only when a readable image path, URL, or attached image is available.
@@ -39,6 +40,7 @@ mod tests {
             "codel watch-remote --job-id phaseA200",
             "codel result <job_id>",
             "CodeLink N bg",
+            "scoped to the current CodeLink thread owner",
             "Do not keep long-running monitors",
             "Do not create a custom `while true` monitor",
             "Codex background terminals are only for short interactive shell continuations",

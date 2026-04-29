@@ -28,6 +28,7 @@ use tokio::process::Command;
 use tokio::time::sleep;
 
 static JOB_ID_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+const CODEX_THREAD_ID_ENV_VAR: &str = "CODEX_THREAD_ID";
 
 #[derive(Debug, Parser)]
 pub struct Cli {
@@ -174,6 +175,21 @@ pub struct CodeLinkNotification {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CodeLinkScope {
+    cwd: PathBuf,
+    owner_thread_id: Option<String>,
+}
+
+impl CodeLinkScope {
+    pub fn new(cwd: PathBuf, owner_thread_id: Option<String>) -> Self {
+        Self {
+            cwd,
+            owner_thread_id: owner_thread_id.and_then(non_empty_string),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CodeLinkJobSummary {
     pub job_id: String,
     pub kind: String,
@@ -292,6 +308,7 @@ struct JobRecord {
     cwd: PathBuf,
     spec_json: String,
     artifact_dir: PathBuf,
+    owner_thread_id: Option<String>,
     last_summary: Option<String>,
     last_log_bytes: Option<i64>,
     last_log_changed_at: Option<i64>,
@@ -437,13 +454,14 @@ async fn bg(args: BgArgs) -> Result<()> {
     };
     let spec_json = serde_json::to_string_pretty(&spec)?;
     let now = now_seconds();
+    let owner_thread_id = current_owner_thread_id();
     sqlx::query(
         r#"
         INSERT INTO jobs (
             job_id, kind, status, cwd, spec_json, artifact_dir,
-            created_at, updated_at, last_heartbeat_at
+            created_at, updated_at, last_heartbeat_at, owner_thread_id
         )
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?7)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?7, ?8)
         "#,
     )
     .bind(&job_id)
@@ -453,6 +471,7 @@ async fn bg(args: BgArgs) -> Result<()> {
     .bind(&spec_json)
     .bind(artifact_dir.display().to_string())
     .bind(now)
+    .bind(&owner_thread_id)
     .execute(&pool)
     .await
     .with_context(|| format!("failed to register CodeLink job `{job_id}`"))?;
@@ -497,13 +516,14 @@ async fn timer(args: TimerArgs) -> Result<()> {
     };
     let spec_json = serde_json::to_string_pretty(&spec)?;
     let now = now_seconds();
+    let owner_thread_id = current_owner_thread_id();
     sqlx::query(
         r#"
         INSERT INTO jobs (
             job_id, kind, status, cwd, spec_json, artifact_dir,
-            created_at, updated_at, last_heartbeat_at, last_summary
+            created_at, updated_at, last_heartbeat_at, last_summary, owner_thread_id
         )
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?7, ?8)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?7, ?8, ?9)
         "#,
     )
     .bind(&job_id)
@@ -514,6 +534,7 @@ async fn timer(args: TimerArgs) -> Result<()> {
     .bind(artifact_dir.display().to_string())
     .bind(now)
     .bind(format!("timer due in {delay_seconds}s"))
+    .bind(&owner_thread_id)
     .execute(&pool)
     .await
     .with_context(|| format!("failed to register CodeLink timer `{job_id}`"))?;
@@ -571,13 +592,14 @@ async fn watch_remote(args: WatchRemoteArgs) -> Result<()> {
     };
     let spec_json = serde_json::to_string_pretty(&spec)?;
     let now = now_seconds();
+    let owner_thread_id = current_owner_thread_id();
     sqlx::query(
         r#"
         INSERT INTO jobs (
             job_id, kind, status, cwd, spec_json, artifact_dir,
-            created_at, updated_at, last_heartbeat_at
+            created_at, updated_at, last_heartbeat_at, owner_thread_id
         )
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?7)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?7, ?8)
         "#,
     )
     .bind(&job_id)
@@ -587,6 +609,7 @@ async fn watch_remote(args: WatchRemoteArgs) -> Result<()> {
     .bind(&spec_json)
     .bind(artifact_dir.display().to_string())
     .bind(now)
+    .bind(&owner_thread_id)
     .execute(&pool)
     .await
     .with_context(|| format!("failed to register CodeLink job `{job_id}`"))?;
@@ -1155,6 +1178,9 @@ async fn print_result(args: JobIdArgs) -> Result<()> {
     println!("kind: {}", job.kind.as_str());
     println!("status: {}", job.status);
     println!("cwd: {}", job.cwd.display());
+    if let Some(owner_thread_id) = &job.owner_thread_id {
+        println!("owner_thread_id: {owner_thread_id}");
+    }
     if let Some(child_pid) = job.child_pid {
         println!("child_pid: {child_pid}");
     }
@@ -1252,6 +1278,39 @@ pub async fn drain_unread_notifications() -> Result<Vec<CodeLinkNotification>> {
     Ok(notifications)
 }
 
+pub async fn drain_unread_notifications_for_scope(
+    scope: &CodeLinkScope,
+) -> Result<Vec<CodeLinkNotification>> {
+    let paths = RuntimePaths::discover()?;
+    if !paths.db_path.exists() {
+        return Ok(Vec::new());
+    }
+    let pool = open_existing_store(&paths).await?;
+    let rows = load_scoped_notification_rows(&pool, /*include_read*/ false, scope).await?;
+    let mut notifications = Vec::new();
+    for row in rows {
+        let job_id: String = row.try_get("job_id")?;
+        let path = PathBuf::from(row.try_get::<String, _>("notification_path")?);
+        let content = tokio::fs::read_to_string(&path).await.with_context(|| {
+            format!(
+                "failed to read CodeLink notification for job `{job_id}` at {}",
+                path.display()
+            )
+        })?;
+        sqlx::query("UPDATE notifications SET read_at = ?1 WHERE job_id = ?2")
+            .bind(now_seconds())
+            .bind(&job_id)
+            .execute(&pool)
+            .await?;
+        notifications.push(CodeLinkNotification {
+            job_id,
+            notification_path: path,
+            content,
+        });
+    }
+    Ok(notifications)
+}
+
 pub async fn active_jobs() -> Result<Vec<CodeLinkJobSummary>> {
     let paths = RuntimePaths::discover()?;
     if !paths.db_path.exists() {
@@ -1264,6 +1323,36 @@ pub async fn active_jobs() -> Result<Vec<CodeLinkJobSummary>> {
     .fetch_all(&pool)
     .await?;
     rows.into_iter()
+        .map(|row| {
+            let artifact_dir: String = row.try_get("artifact_dir")?;
+            Ok(CodeLinkJobSummary {
+                job_id: row.try_get("job_id")?,
+                kind: row.try_get("kind")?,
+                status: row.try_get("status")?,
+                artifact_dir: PathBuf::from(artifact_dir),
+                last_summary: row.try_get("last_summary")?,
+            })
+        })
+        .collect()
+}
+
+pub async fn active_jobs_for_scope(scope: &CodeLinkScope) -> Result<Vec<CodeLinkJobSummary>> {
+    let paths = RuntimePaths::discover()?;
+    if !paths.db_path.exists() {
+        return Ok(Vec::new());
+    }
+    let pool = open_existing_store(&paths).await?;
+    let rows = sqlx::query(
+        "SELECT job_id, kind, status, cwd, artifact_dir, owner_thread_id, last_summary FROM jobs WHERE status IN ('running', 'stalled') ORDER BY updated_at DESC",
+    )
+    .fetch_all(&pool)
+    .await?;
+    rows.into_iter()
+        .filter(|row| {
+            let cwd = row.try_get::<String, _>("cwd").ok();
+            let owner_thread_id = row.try_get::<Option<String>, _>("owner_thread_id").ok();
+            job_matches_scope(scope, cwd.as_deref(), owner_thread_id.flatten().as_deref())
+        })
         .map(|row| {
             let artifact_dir: String = row.try_get("artifact_dir")?;
             Ok(CodeLinkJobSummary {
@@ -1316,6 +1405,46 @@ async fn load_notification_rows(
     }
 }
 
+async fn load_scoped_notification_rows(
+    pool: &SqlitePool,
+    include_read: bool,
+    scope: &CodeLinkScope,
+) -> Result<Vec<sqlx::sqlite::SqliteRow>> {
+    let rows = if include_read {
+        sqlx::query(
+            r#"
+            SELECT n.job_id, n.notification_path, j.cwd, j.owner_thread_id
+            FROM notifications n
+            JOIN jobs j ON j.job_id = n.job_id
+            ORDER BY n.created_at DESC
+            "#,
+        )
+        .fetch_all(pool)
+        .await?
+    } else {
+        sqlx::query(
+            r#"
+            SELECT n.job_id, n.notification_path, j.cwd, j.owner_thread_id
+            FROM notifications n
+            JOIN jobs j ON j.job_id = n.job_id
+            WHERE n.read_at IS NULL
+            ORDER BY n.created_at DESC
+            "#,
+        )
+        .fetch_all(pool)
+        .await?
+    };
+
+    Ok(rows
+        .into_iter()
+        .filter(|row| {
+            let cwd = row.try_get::<String, _>("cwd").ok();
+            let owner_thread_id = row.try_get::<Option<String>, _>("owner_thread_id").ok();
+            job_matches_scope(scope, cwd.as_deref(), owner_thread_id.flatten().as_deref())
+        })
+        .collect())
+}
+
 async fn write_notification(
     pool: &SqlitePool,
     job: &JobRecord,
@@ -1352,7 +1481,7 @@ async fn write_notification(
 
 async fn load_job(pool: &SqlitePool, job_id: &str) -> Result<JobRecord> {
     let row = sqlx::query(
-        "SELECT job_id, kind, status, cwd, spec_json, artifact_dir, last_summary, last_log_bytes, last_log_changed_at, child_pid FROM jobs WHERE job_id = ?1",
+        "SELECT job_id, kind, status, cwd, spec_json, artifact_dir, owner_thread_id, last_summary, last_log_bytes, last_log_changed_at, child_pid FROM jobs WHERE job_id = ?1",
     )
     .bind(job_id)
     .fetch_optional(pool)
@@ -1369,6 +1498,7 @@ async fn load_job(pool: &SqlitePool, job_id: &str) -> Result<JobRecord> {
         cwd: PathBuf::from(cwd),
         spec_json: row.try_get("spec_json")?,
         artifact_dir: PathBuf::from(artifact_dir),
+        owner_thread_id: row.try_get("owner_thread_id")?,
         last_summary: row.try_get("last_summary")?,
         last_log_bytes: row.try_get("last_log_bytes")?,
         last_log_changed_at: row.try_get("last_log_changed_at")?,
@@ -1409,6 +1539,7 @@ async fn initialize_schema(pool: &SqlitePool) -> Result<()> {
             updated_at INTEGER NOT NULL,
             last_heartbeat_at INTEGER,
             last_summary TEXT,
+            owner_thread_id TEXT,
             last_log_bytes INTEGER,
             last_log_changed_at INTEGER,
             child_pid INTEGER
@@ -1417,6 +1548,7 @@ async fn initialize_schema(pool: &SqlitePool) -> Result<()> {
     )
     .execute(pool)
     .await?;
+    try_add_jobs_column(pool, "owner_thread_id TEXT").await?;
     try_add_jobs_column(pool, "last_log_bytes INTEGER").await?;
     try_add_jobs_column(pool, "last_log_changed_at INTEGER").await?;
     try_add_jobs_column(pool, "child_pid INTEGER").await?;
@@ -1516,6 +1648,37 @@ fn default_job_id() -> String {
         .unwrap_or(0);
     let sequence = JOB_ID_SEQUENCE.fetch_add(1, Ordering::Relaxed);
     format!("job-{nanos}-{}-{sequence}", std::process::id())
+}
+
+fn current_owner_thread_id() -> Option<String> {
+    std::env::var(CODEX_THREAD_ID_ENV_VAR)
+        .ok()
+        .and_then(non_empty_string)
+}
+
+fn non_empty_string(value: String) -> Option<String> {
+    let value = value.trim().to_string();
+    (!value.is_empty()).then_some(value)
+}
+
+fn job_matches_scope(
+    scope: &CodeLinkScope,
+    job_cwd: Option<&str>,
+    job_owner_thread_id: Option<&str>,
+) -> bool {
+    match (scope.owner_thread_id.as_deref(), job_owner_thread_id) {
+        (Some(scope_owner), Some(job_owner)) => scope_owner == job_owner,
+        (None, Some(_)) => false,
+        (_, None) => job_cwd.is_some_and(|cwd| same_cwd(&scope.cwd, cwd)),
+    }
+}
+
+fn same_cwd(scope_cwd: &Path, job_cwd: &str) -> bool {
+    normalize_path(scope_cwd) == normalize_path(Path::new(job_cwd))
+}
+
+fn normalize_path(path: &Path) -> PathBuf {
+    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
 }
 
 fn now_seconds() -> i64 {
@@ -1721,6 +1884,155 @@ mod tests {
         Ok(())
     }
 
+    #[tokio::test]
+    async fn scoped_active_jobs_filters_legacy_jobs_by_cwd() -> Result<()> {
+        let _env_guard = env_lock().await;
+        let temp_home = tempfile::tempdir()?;
+        let paths = RuntimePaths {
+            jobs_dir: temp_home.path().join("jobs"),
+            db_path: temp_home.path().join("jobs.sqlite"),
+        };
+        paths.ensure().await?;
+        let pool = open_store(&paths).await?;
+        let cwd_a = temp_home.path().join("repo-a");
+        let cwd_b = temp_home.path().join("repo-b");
+        tokio::fs::create_dir_all(&cwd_a).await?;
+        tokio::fs::create_dir_all(&cwd_b).await?;
+
+        register_test_codex_agent_with_cwd_and_owner(
+            &pool,
+            &paths,
+            "repo-a-job",
+            "prompt a",
+            &cwd_a,
+            None,
+        )
+        .await?;
+        register_test_codex_agent_with_cwd_and_owner(
+            &pool,
+            &paths,
+            "repo-b-job",
+            "prompt b",
+            &cwd_b,
+            None,
+        )
+        .await?;
+
+        let previous = std::env::var("CODELINK_HOME").ok();
+        unsafe { std::env::set_var("CODELINK_HOME", temp_home.path()) };
+
+        let jobs = active_jobs_for_scope(&CodeLinkScope::new(cwd_a.clone(), None)).await?;
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].job_id, "repo-a-job");
+
+        match previous {
+            Some(value) => unsafe { std::env::set_var("CODELINK_HOME", value) },
+            None => unsafe { std::env::remove_var("CODELINK_HOME") },
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn scoped_active_jobs_filters_owned_jobs_by_thread() -> Result<()> {
+        let _env_guard = env_lock().await;
+        let temp_home = tempfile::tempdir()?;
+        let paths = RuntimePaths {
+            jobs_dir: temp_home.path().join("jobs"),
+            db_path: temp_home.path().join("jobs.sqlite"),
+        };
+        paths.ensure().await?;
+        let pool = open_store(&paths).await?;
+        let cwd = temp_home.path().join("repo");
+        tokio::fs::create_dir_all(&cwd).await?;
+
+        register_test_codex_agent_with_cwd_and_owner(
+            &pool,
+            &paths,
+            "thread-a-job",
+            "prompt a",
+            &cwd,
+            Some("thread-a"),
+        )
+        .await?;
+        register_test_codex_agent_with_cwd_and_owner(
+            &pool,
+            &paths,
+            "thread-b-job",
+            "prompt b",
+            &cwd,
+            Some("thread-b"),
+        )
+        .await?;
+
+        let previous = std::env::var("CODELINK_HOME").ok();
+        unsafe { std::env::set_var("CODELINK_HOME", temp_home.path()) };
+
+        let jobs = active_jobs_for_scope(&CodeLinkScope::new(
+            cwd.clone(),
+            Some("thread-a".to_string()),
+        ))
+        .await?;
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].job_id, "thread-a-job");
+
+        match previous {
+            Some(value) => unsafe { std::env::set_var("CODELINK_HOME", value) },
+            None => unsafe { std::env::remove_var("CODELINK_HOME") },
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn scoped_notifications_do_not_drain_other_cwd() -> Result<()> {
+        let _env_guard = env_lock().await;
+        let temp_home = tempfile::tempdir()?;
+        let paths = RuntimePaths {
+            jobs_dir: temp_home.path().join("jobs"),
+            db_path: temp_home.path().join("jobs.sqlite"),
+        };
+        paths.ensure().await?;
+        let pool = open_store(&paths).await?;
+        let cwd_a = temp_home.path().join("repo-a");
+        let cwd_b = temp_home.path().join("repo-b");
+        tokio::fs::create_dir_all(&cwd_a).await?;
+        tokio::fs::create_dir_all(&cwd_b).await?;
+
+        register_test_codex_agent_with_cwd_and_owner(
+            &pool, &paths, "notify-a", "prompt a", &cwd_a, None,
+        )
+        .await?;
+        register_test_codex_agent_with_cwd_and_owner(
+            &pool, &paths, "notify-b", "prompt b", &cwd_b, None,
+        )
+        .await?;
+        let job_a = load_job(&pool, "notify-a").await?;
+        let job_b = load_job(&pool, "notify-b").await?;
+        write_notification(&pool, &job_a, JobStatus::Done, "done a").await?;
+        write_notification(&pool, &job_b, JobStatus::Done, "done b").await?;
+
+        let previous = std::env::var("CODELINK_HOME").ok();
+        unsafe { std::env::set_var("CODELINK_HOME", temp_home.path()) };
+
+        let first =
+            drain_unread_notifications_for_scope(&CodeLinkScope::new(cwd_a.clone(), None)).await?;
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0].job_id, "notify-a");
+
+        let remaining =
+            drain_unread_notifications_for_scope(&CodeLinkScope::new(cwd_b.clone(), None)).await?;
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].job_id, "notify-b");
+
+        match previous {
+            Some(value) => unsafe { std::env::set_var("CODELINK_HOME", value) },
+            None => unsafe { std::env::remove_var("CODELINK_HOME") },
+        }
+
+        Ok(())
+    }
+
     #[cfg(unix)]
     #[tokio::test]
     async fn wake_socket_receives_notifications() -> Result<()> {
@@ -1751,6 +2063,25 @@ mod tests {
         job_id: &str,
         prompt: &str,
     ) -> Result<()> {
+        register_test_codex_agent_with_cwd_and_owner(
+            pool,
+            paths,
+            job_id,
+            prompt,
+            &std::env::current_dir()?,
+            None,
+        )
+        .await
+    }
+
+    async fn register_test_codex_agent_with_cwd_and_owner(
+        pool: &SqlitePool,
+        paths: &RuntimePaths,
+        job_id: &str,
+        prompt: &str,
+        cwd: &Path,
+        owner_thread_id: Option<&str>,
+    ) -> Result<()> {
         let artifact_dir = paths.jobs_dir.join(job_id);
         tokio::fs::create_dir_all(&artifact_dir).await?;
         let spec = CodexAgentSpec {
@@ -1764,18 +2095,19 @@ mod tests {
             r#"
             INSERT INTO jobs (
                 job_id, kind, status, cwd, spec_json, artifact_dir,
-                created_at, updated_at, last_heartbeat_at
+                created_at, updated_at, last_heartbeat_at, owner_thread_id
             )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?7)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, ?7, ?8)
             "#,
         )
         .bind(job_id)
         .bind(JobKind::CodexAgent.as_str())
         .bind(JobStatus::Running.as_str())
-        .bind(std::env::current_dir()?.display().to_string())
+        .bind(cwd.display().to_string())
         .bind(&spec_json)
         .bind(artifact_dir.display().to_string())
         .bind(now)
+        .bind(owner_thread_id)
         .execute(pool)
         .await?;
         write_artifact(&artifact_dir.join("spec.json"), &spec_json).await?;

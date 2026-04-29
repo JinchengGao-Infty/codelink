@@ -140,6 +140,12 @@ polling. The bridge does two things:
 2. unread completion notifications are drained, their `notification.md` files
    are read, and a compact completion event is inserted into history.
 
+The bridge is scoped. Jobs started from a Codex shell carry the current
+`CODEX_THREAD_ID` and are only surfaced back to that thread. Older jobs and
+manual terminal jobs without an owner are only surfaced in TUI sessions whose
+current workspace cwd matches the job cwd, so a new session in another repo does
+not drain or display unrelated background work.
+
 When a job finishes, the TUI should render a compact event:
 
 ```text
