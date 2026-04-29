@@ -745,8 +745,7 @@ fn image_generation_tools_require_feature_and_supported_model() {
         serde_json::json!({
             "type": "image_generation",
             "output_format": "png",
-            "action": "auto",
-            "input_fidelity": "high"
+            "action": "auto"
         })
     );
 

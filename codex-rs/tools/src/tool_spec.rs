@@ -36,7 +36,6 @@ pub enum ToolSpec {
     ImageGeneration {
         output_format: String,
         action: ImageGenerationAction,
-        input_fidelity: ImageGenerationInputFidelity,
     },
     // TODO: Understand why we get an error on web_search although the API docs
     // say it's supported.
@@ -65,12 +64,6 @@ pub enum ToolSpec {
 #[serde(rename_all = "snake_case")]
 pub enum ImageGenerationAction {
     Auto,
-}
-
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum ImageGenerationInputFidelity {
-    High,
 }
 
 impl ToolSpec {
@@ -104,7 +97,6 @@ pub fn create_image_generation_tool(output_format: &str) -> ToolSpec {
     ToolSpec::ImageGeneration {
         output_format: output_format.to_string(),
         action: ImageGenerationAction::Auto,
-        input_fidelity: ImageGenerationInputFidelity::High,
     }
 }
 
