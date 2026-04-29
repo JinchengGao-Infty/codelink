@@ -4,6 +4,7 @@ const CODELINK_BUILTIN_DEVELOPER_INSTRUCTIONS: &str = r#"CodeLink built-in capab
 - Use `codel bg --cwd <dir> "<prompt>"` for background agent work such as read-only directory exploration, audits, or long independent tasks. The foreground session should remain usable while it runs.
 - Use `codel timer --after <duration> "<message>"` for scheduled wakeups. Durations accept plain seconds or `s`, `m`, `h` suffixes.
 - Use `codel watch-remote` for long remote tmux/log jobs.
+- Do not keep long-running monitors, remote log watchers, sleeps, training checks, or multi-minute shell commands alive as Codex background terminals. Move that work into `codel bg`, `codel watch-remote`, or `codel timer`, then end the foreground turn with the job id. Codex background terminals are only for short interactive shell continuations that must stay attached to the current turn.
 - Background jobs write artifacts under `~/.codelink/jobs/<job_id>/`, including `result.md`, logs, history, and `notification.md`.
 - When a CodeLink wake turn arrives, read `codel result <job_id>` for every listed job, summarize the outcome, and continue the pending work. Do not ask the user to poll manually.
 - The active TUI is woken by a local socket when jobs start or finish. Do not busy-poll jobs in the foreground loop. Startup checks and low-frequency fallback checks are acceptable; normal completion handling should rely on wake notifications.
@@ -29,6 +30,8 @@ mod tests {
             "codel watch-remote",
             "codel result <job_id>",
             "CodeLink N bg",
+            "Do not keep long-running monitors",
+            "Codex background terminals are only for short interactive shell continuations",
             "Do not busy-poll",
             "view_image",
             "image_generation",
