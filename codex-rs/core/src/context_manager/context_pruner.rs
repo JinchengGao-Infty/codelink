@@ -42,6 +42,7 @@ const CONTEXT_PRUNER_DIRECTIVE_INSTRUCTIONS: &str = r#"CodeLink dynamic context 
 - Visible conversation messages include stable ids like [codelink-message-id m0007].
 - When a contiguous old range is closed and no longer needed verbatim, call the `compress` tool with start_id, end_id, and a high-fidelity summary. Only choose ranges older than the recent active turn.
 - Summaries must preserve decisions, file paths, commands, test results, failures, remote/session names, and exact current state.
+- Message ids are internal anchors for compression. Never quote, mention, or include [codelink-message-id ...] markers in user-facing replies.
 - You may also request payload-only runtime pruning after a stable checkpoint.
 - Emit exactly one checkpoint line when older image payloads are no longer needed:
   [codelink-context-checkpoint scope=older-images] brief continuity summary and QA status

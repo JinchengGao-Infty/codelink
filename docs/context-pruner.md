@@ -30,6 +30,8 @@ Behavior:
 
 - Visible message text is annotated with stable ids such as
   `[codelink-message-id m0007]` in the request sent to the model.
+  These ids are internal compression anchors and should not be echoed in
+  user-facing replies.
 - The model can call the built-in `compress` tool with `start_id`, `end_id`, and
   `summary` for old closed ranges. On the next prompt build, CodeLink replaces
   that range with a `[codelink-compressed-block ...]` summary item if the ids
