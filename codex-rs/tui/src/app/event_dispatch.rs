@@ -543,10 +543,7 @@ impl App {
                     self.chat_widget
                         .add_plain_history_lines(codelink_notification_lines(notification));
                 }
-                if !notifications.is_empty()
-                    && !self.chat_widget.has_active_agent_stream()
-                    && !self.chat_widget.has_active_plan_stream()
-                {
+                if !notifications.is_empty() {
                     let text = codelink_wake_prompt(&notifications);
                     self.chat_widget.submit_codelink_wake_message(text);
                 }
