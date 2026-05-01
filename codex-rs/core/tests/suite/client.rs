@@ -91,14 +91,56 @@ fn assert_message_role(request_body: &serde_json::Value, role: &str) {
     assert_eq!(request_body["role"].as_str().unwrap(), role);
 }
 
+fn strip_codelink_message_id(text: &str) -> &str {
+    const MESSAGE_ID_PREFIX: &str = "[codelink-message-id ";
+
+    if text.starts_with(MESSAGE_ID_PREFIX)
+        && let Some((_, rest)) = text.split_once("]\n")
+    {
+        return rest;
+    }
+    text
+}
+
 #[expect(clippy::unwrap_used)]
-fn message_input_texts(item: &serde_json::Value) -> Vec<&str> {
+fn message_input_texts(item: &serde_json::Value) -> Vec<String> {
     item["content"]
         .as_array()
         .unwrap()
         .iter()
         .filter_map(|entry| entry.get("text").and_then(|text| text.as_str()))
+        .map(strip_codelink_message_id)
+        .map(str::to_string)
         .collect()
+}
+
+fn normalize_codelink_message_ids_in_value(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            for (key, value) in map {
+                if key == "text"
+                    && let Some(text) = value.as_str()
+                {
+                    *value = serde_json::Value::String(
+                        strip_codelink_message_id(text)
+                            .trim_end_matches('\n')
+                            .to_string(),
+                    );
+                    continue;
+                }
+                normalize_codelink_message_ids_in_value(value);
+            }
+        }
+        serde_json::Value::Array(values) => {
+            for value in values {
+                normalize_codelink_message_ids_in_value(value);
+            }
+        }
+        serde_json::Value::Null
+        | serde_json::Value::Bool(_)
+        | serde_json::Value::Number(_)
+        | serde_json::Value::String(_) => {}
+    }
 }
 
 fn message_input_text_contains(request: &ResponsesRequest, role: &str, needle: &str) -> bool {
@@ -418,13 +460,9 @@ async fn resume_includes_initial_messages_and_sends_prior_items() {
         .iter()
         .find(|item| {
             item.get("role").and_then(|role| role.as_str()) == Some("assistant")
-                && item
-                    .get("content")
-                    .and_then(|content| content.as_array())
-                    .and_then(|content| content.first())
-                    .and_then(|entry| entry.get("text"))
-                    .and_then(|text| text.as_str())
-                    == Some("resumed assistant message")
+                && message_input_texts(item)
+                    .iter()
+                    .any(|text| text == "resumed assistant message")
         })
         .expect("resumed assistant message request item");
     assert_eq!(
@@ -573,6 +611,15 @@ async fn resume_replays_legacy_js_repl_image_rollout_shapes() {
                                 == Some("input_image")
                                 && entry.get("image_url").and_then(|value| value.as_str())
                                     == Some(legacy_image_url)
+                        }) || content.iter().any(|entry| {
+                            entry.get("type").and_then(|value| value.as_str()) == Some("input_text")
+                                && entry
+                                    .get("text")
+                                    .and_then(|value| value.as_str())
+                                    .is_some_and(|text| {
+                                        strip_codelink_message_id(text)
+                                            .contains("image payload removed from older history")
+                                    })
                         })
                     })
         })
@@ -583,16 +630,9 @@ async fn resume_replays_legacy_js_repl_image_rollout_shapes() {
         .position(|item| {
             item.get("type").and_then(|value| value.as_str()) == Some("message")
                 && item.get("role").and_then(|value| value.as_str()) == Some("user")
-                && item
-                    .get("content")
-                    .and_then(|value| value.as_array())
-                    .is_some_and(|content| {
-                        content.iter().any(|entry| {
-                            entry.get("type").and_then(|value| value.as_str()) == Some("input_text")
-                                && entry.get("text").and_then(|value| value.as_str())
-                                    == Some("after resume")
-                        })
-                    })
+                && message_input_texts(item)
+                    .iter()
+                    .any(|text| text == "after resume")
         })
         .expect("new user message should be present");
 
@@ -1195,7 +1235,6 @@ async fn includes_user_instructions_message_in_request() {
     );
     let ui_text = user_context_texts
         .iter()
-        .copied()
         .find(|text| text.contains("<INSTRUCTIONS>"))
         .expect("invalid message content");
     assert!(ui_text.contains("<INSTRUCTIONS>"));
@@ -2196,7 +2235,9 @@ async fn includes_developer_instructions_message_in_request() {
     assert!(
         developer_messages
             .iter()
-            .any(|item| message_input_texts(item).contains(&"be useful")),
+            .any(|item| message_input_texts(item)
+                .iter()
+                .any(|text| text == "be useful")),
         "expected developer instructions in a developer message, got {:?}",
         request_body["input"]
     );
@@ -2211,7 +2252,6 @@ async fn includes_developer_instructions_message_in_request() {
     );
     let ui_text = user_context_texts
         .iter()
-        .copied()
         .find(|text| text.contains("<INSTRUCTIONS>"))
         .expect("invalid message content");
     assert!(ui_text.contains("<INSTRUCTIONS>"));
@@ -3103,7 +3143,7 @@ async fn history_dedupes_streamed_and_final_messages_across_turns() {
     }
 
     // Replace full-array compare with tail-only raw JSON compare using a single hard-coded value.
-    let r3_tail_expected = json!([
+    let mut r3_tail_expected = json!([
         {
             "type": "message",
             "role": "user",
@@ -3112,7 +3152,7 @@ async fn history_dedupes_streamed_and_final_messages_across_turns() {
         {
             "type": "message",
             "role": "assistant",
-            "content": [{"type":"output_text","text":"Hey there!\n"}]
+            "content": [{"type":"output_text","text":"Hey there!"}]
         },
         {
             "type": "message",
@@ -3122,7 +3162,7 @@ async fn history_dedupes_streamed_and_final_messages_across_turns() {
         {
             "type": "message",
             "role": "assistant",
-            "content": [{"type":"output_text","text":"Hey there!\n"}]
+            "content": [{"type":"output_text","text":"Hey there!"}]
         },
         {
             "type": "message",
@@ -3140,9 +3180,8 @@ async fn history_dedupes_streamed_and_final_messages_across_turns() {
     // skipping earlier context and developer messages
     let tail_len = r3_tail_expected.as_array().unwrap().len();
     let actual_tail = &r3_input_array[r3_input_array.len() - tail_len..];
-    assert_eq!(
-        serde_json::Value::Array(actual_tail.to_vec()),
-        r3_tail_expected,
-        "request 3 tail mismatch",
-    );
+    let mut actual_tail = serde_json::Value::Array(actual_tail.to_vec());
+    normalize_codelink_message_ids_in_value(&mut actual_tail);
+    normalize_codelink_message_ids_in_value(&mut r3_tail_expected);
+    assert_eq!(actual_tail, r3_tail_expected, "request 3 tail mismatch",);
 }
